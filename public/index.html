@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Codex Workspace Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">C</div>
+        <div>
+          <strong>Codex Manager</strong>
+          <span>Local workspace</span>
+        </div>
+      </div>
+
+      <div class="connection-card">
+        <span id="codex-dot" class="status-dot"></span>
+        <div>
+          <strong id="codex-status">Đang kiểm tra Codex…</strong>
+          <span>Chỉ chạy trên máy này</span>
+        </div>
+      </div>
+
+      <section class="side-section">
+        <div class="section-heading">
+          <span>Tài khoản</span>
+          <div class="section-actions">
+            <button id="refresh-usage" class="icon-button" type="button" aria-label="Làm mới limit">↻</button>
+            <button id="add-account" class="icon-button" type="button" aria-label="Thêm tài khoản">+</button>
+          </div>
+        </div>
+        <div id="account-list" class="account-list"></div>
+      </section>
+
+      <section class="side-section projects-section">
+        <div class="section-heading">
+          <span>Dự án</span>
+          <button id="add-project" class="icon-button" type="button" aria-label="Thêm dự án">+</button>
+        </div>
+        <div id="project-list" class="project-list"></div>
+      </section>
+
+      <div class="privacy-note">
+        <span class="lock-icon">◆</span>
+        Không lưu mật khẩu, cookie hoặc token.
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="mobile-brand">
+          <div class="brand-mark">C</div>
+          <strong>Codex Manager</strong>
+        </div>
+        <div>
+          <p class="eyebrow">Không gian làm việc</p>
+          <h1 id="project-title">Chọn một dự án</h1>
+        </div>
+        <div class="top-actions">
+          <div id="active-account-pill" class="active-account-pill">
+            <span class="status-dot"></span>
+            <span>Chưa có tài khoản</span>
+          </div>
+          <button id="new-chat" class="button button-primary" type="button" disabled>+ Chat mới</button>
+        </div>
+      </header>
+
+      <div class="workspace-grid">
+        <aside class="chat-sidebar">
+          <div class="panel-heading">
+            <span>Cuộc trò chuyện</span>
+            <small id="chat-count">0 chat</small>
+          </div>
+          <div id="chat-list" class="chat-list"></div>
+        </aside>
+
+        <section class="conversation-panel">
+          <div id="empty-state" class="empty-state">
+            <div class="empty-orb"><span></span></div>
+            <p class="eyebrow">Một cuộc trò chuyện, nhiều phiên Codex</p>
+            <h2>Tiếp tục công việc dù bạn đổi tài khoản.</h2>
+            <p>
+              Thêm tài khoản, chọn thư mục dự án rồi tạo chat. Dashboard giữ lịch sử
+              và chuyển một gói ngữ cảnh gọn sang phiên Codex tiếp theo.
+            </p>
+            <div class="steps">
+              <div><b>01</b><span>Thêm nhãn tài khoản</span></div>
+              <div><b>02</b><span>Chọn thư mục dự án</span></div>
+              <div><b>03</b><span>Trò chuyện và tiếp tục</span></div>
+            </div>
+          </div>
+
+          <div id="chat-view" class="chat-view hidden">
+            <div class="chat-header">
+              <div>
+                <p class="eyebrow">Chat đang mở</p>
+                <h2 id="chat-title">—</h2>
+              </div>
+              <div class="chat-meta">
+                <span id="thread-status">Chưa tạo Codex session</span>
+                <span id="usage-status">0 tokens</span>
+              </div>
+            </div>
+            <div id="messages" class="messages" aria-live="polite"></div>
+            <div id="job-strip" class="job-strip hidden">
+              <span class="spinner"></span>
+              <div>
+                <strong id="job-label">Codex đang làm việc…</strong>
+                <span id="job-event">Đang chuẩn bị</span>
+              </div>
+              <button id="cancel-job" type="button">Dừng</button>
+            </div>
+            <footer class="composer">
+              <div class="composer-options">
+                <label>
+                  <span>Model</span>
+                  <input id="model-input" placeholder="Mặc định của Codex">
+                </label>
+                <label>
+                  <span>Quyền</span>
+                  <select id="sandbox-input">
+                    <option value="workspace-write">Được sửa trong dự án</option>
+                    <option value="read-only">Chỉ đọc</option>
+                  </select>
+                </label>
+              </div>
+              <div class="composer-box">
+                <textarea id="message-input" rows="3" placeholder="Nhập yêu cầu cho Codex…"></textarea>
+                <button id="send-message" type="button" aria-label="Gửi">↑</button>
+              </div>
+              <div class="composer-note">
+                <span>Enter để gửi · Shift+Enter xuống dòng</span>
+                <span id="bridge-note">Lịch sử được lưu local</span>
+              </div>
+            </footer>
+          </div>
+        </section>
+
+        <aside class="context-panel">
+          <div class="panel-heading">
+            <span>Ngữ cảnh bàn giao</span>
+            <span id="save-indicator">Đã lưu</span>
+          </div>
+          <div id="context-empty" class="context-empty">
+            Chọn một dự án để lưu trạng thái dùng chung giữa các tài khoản.
+          </div>
+          <div id="context-form" class="context-form hidden">
+            <label>
+              <span>Tóm tắt hiện tại</span>
+              <textarea id="summary-input" rows="10" placeholder="Mục tiêu, phần đã hoàn thành, file đã sửa, kết quả test…"></textarea>
+            </label>
+            <label>
+              <span>Việc tiếp theo</span>
+              <textarea id="next-step-input" rows="6" placeholder="Bước cụ thể mà tài khoản tiếp theo cần làm…"></textarea>
+            </label>
+            <button id="save-context" class="button button-secondary" type="button">Lưu ngữ cảnh</button>
+            <div class="context-tip">
+              <strong>Tiết kiệm limit</strong>
+              <p>Chỉ 8 tin nhắn gần nhất và phần tóm tắt này được dùng để nối tài khoản mới.</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="account-dialog">
+    <form id="account-form" method="dialog">
+      <p class="eyebrow">Tài khoản mới</p>
+      <h2>Thêm nhãn quản lý</h2>
+      <p class="dialog-copy">Dashboard không yêu cầu mật khẩu. Bạn sẽ đăng nhập bằng cửa sổ chính thức của Codex.</p>
+      <label>Tên hiển thị<input id="account-label" required maxlength="80" placeholder="Ví dụ: GPT Plus 01"></label>
+      <label>Email<input id="account-email" type="email" maxlength="180" placeholder="ten@email.com"></label>
+      <div class="form-row">
+        <label>Gói
+          <select id="account-plan">
+            <option>Plus</option>
+            <option>Pro</option>
+            <option>Business</option>
+            <option>Free</option>
+          </select>
+        </label>
+        <div class="auto-limit-note">
+          <strong>Limit tự động</strong>
+          <span>Đọc từ Codex sau khi đăng nhập</span>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
+        <button class="button button-primary" type="submit">Thêm tài khoản</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog">
+    <form id="project-form" method="dialog">
+      <p class="eyebrow">Dự án mới</p>
+      <h2>Chọn thư mục code</h2>
+      <label>Tên dự án<input id="project-name" maxlength="100" placeholder="Website LAKA"></label>
+      <label>Đường dẫn tuyệt đối<input id="project-path" required maxlength="2000" placeholder="C:\Users\Tên\Projects\du-an"></label>
+      <p class="dialog-copy">Codex chỉ được chạy trong thư mục bạn khai báo và theo quyền của từng chat.</p>
+      <div class="dialog-actions">
+        <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
+        <button class="button button-primary" type="submit">Thêm dự án</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chat-dialog">
+    <form id="chat-form" method="dialog">
+      <p class="eyebrow">Cuộc trò chuyện mới</p>
+      <h2>Đặt tên theo mục tiêu</h2>
+      <label>Tên chat<input id="new-chat-title" required maxlength="120" placeholder="Ví dụ: Hoàn thiện trang đặt phòng"></label>
+      <div class="dialog-actions">
+        <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
+        <button class="button button-primary" type="submit">Tạo chat</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="switch-dialog">
+    <div class="switch-dialog-content">
+      <p class="eyebrow">Đổi tài khoản Codex</p>
+      <h2 id="switch-title">Chuyển tài khoản?</h2>
+      <p>
+        Mỗi tài khoản có một profile đăng nhập riêng. Nếu profile này chưa được
+        xác thực, trình duyệt sẽ mở để bạn đăng nhập một lần.
+      </p>
+      <div class="switch-warning">
+        Các tài khoản khác vẫn giữ nguyên đăng nhập và session.
+      </div>
+      <div class="dialog-actions">
+        <button id="cancel-switch" class="button button-ghost" type="button">Hủy</button>
+        <button id="confirm-switch" class="button button-primary" type="button">Chọn tài khoản</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
