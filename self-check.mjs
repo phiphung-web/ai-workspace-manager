@@ -205,7 +205,7 @@ try {
 
   const home = await fetch(`http://127.0.0.1:${port}/`);
   const homeHtml = await home.text();
-  if (!home.ok || !homeHtml.includes("Codex Workspace Manager")) {
+  if (!home.ok || !homeHtml.includes("AI Workspace Manager")) {
     throw new Error("Dashboard tĩnh không tải được.");
   }
   if (!home.headers.get("content-security-policy")?.includes("default-src 'self'")) {

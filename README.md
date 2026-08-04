@@ -1,7 +1,8 @@
-# Codex Workspace Manager
+# AI Workspace Manager
 
-Dashboard local để quản lý nhiều dự án, nhiều cuộc trò chuyện và chuyển tài
-khoản Codex mà không làm mất trạng thái công việc.
+Workspace cục bộ để quản lý nhiều hồ sơ Codex, dự án và cuộc trò chuyện trong
+một luồng làm việc liên tục. Khi một tài khoản chạm hạn mức, hệ thống chuẩn bị
+ngữ cảnh bàn giao để hồ sơ tiếp theo tiếp quản mà không phải rà soát lại từ đầu.
 
 ## Chạy
 
@@ -24,7 +25,7 @@ của VS Code trên Windows. Nếu bạn dùng vị trí khác, đặt biến `C
 
 ## Cách tiếp tục sau khi đổi tài khoản
 
-1. Trong dashboard, cập nhật **Tóm tắt hiện tại** và **Việc tiếp theo**.
+1. Trong workspace, cập nhật **Tóm tắt tiến độ** và **Hành động tiếp theo**.
 2. Chọn tài khoản muốn chuyển sang.
 3. Nếu đây là lần đầu dùng tài khoản đó, dashboard mở luồng `codex login`
    chính thức trong trình duyệt.
@@ -42,7 +43,7 @@ lặp. Trạng thái file luôn được xác minh lại từ repository và Git
 Nếu Codex dừng vì chạm hạn mức, dashboard tự tạo **handoff capsule** gồm mục
 tiêu, yêu cầu đang chạy, hoạt động cuối, việc tiếp theo, nhánh/commit, `git
 status` và thống kê diff. Một banner sẽ đề xuất profile đã đăng nhập còn nhiều
-hạn mức nhất. Bạn xác nhận bằng nút **Tiếp tục task**; yêu cầu dở dang được chạy
+hạn mức nhất. Bạn xác nhận bằng nút **Bàn giao và tiếp tục**; yêu cầu dở dang được chạy
 lại trong chat cũ mà không phải nhập hoặc giải thích lại. Snapshot Git chỉ đọc,
 dashboard không tự commit, stash hay thay đổi working tree.
 

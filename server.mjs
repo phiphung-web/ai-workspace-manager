@@ -949,7 +949,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Codex Workspace Manager: http://${host}:${port}`);
+  console.log(`AI Workspace Manager: http://${host}:${port}`);
   console.log(`Data: ${dataRoot}`);
 });
 
