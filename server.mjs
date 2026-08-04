@@ -1,7 +1,7 @@
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { access, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, stat } from "node:fs/promises";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -21,6 +21,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const publicRoot = path.join(here, "public");
 const dataRoot = path.resolve(process.env.CODEX_MANAGER_DATA_DIR || path.join(here, ".data"));
 const profilesRoot = path.join(dataRoot, "profiles");
+const archivedProfilesRoot = path.join(dataRoot, "archived-profiles");
 const port = Math.max(1024, Math.min(65535, Number(process.env.CODEX_MANAGER_PORT) || 4320));
 const host = "127.0.0.1";
 const store = new Store(dataRoot);
@@ -145,6 +146,21 @@ async function ensureAccountHome(accountId) {
   const home = accountHome(accountId);
   await mkdir(home, { recursive: true });
   return home;
+}
+
+async function archiveAccountHome(accountId) {
+  const source = accountHome(accountId);
+  try {
+    const info = await stat(source);
+    if (!info.isDirectory()) return null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  await mkdir(archivedProfilesRoot, { recursive: true });
+  const target = path.join(archivedProfilesRoot, `${safeId(accountId)}-${Date.now()}`);
+  await rename(source, target);
+  return { source, target };
 }
 
 async function refreshAccountMetrics(accountId) {
@@ -709,6 +725,24 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const accountMatch = url.pathname.match(/^\/api\/accounts\/([a-z0-9-]+)$/i);
+    if (request.method === "DELETE" && accountMatch) {
+      if (hasRunningJob()) {
+        sendJson(response, 409, { error: "Hãy đợi tác vụ hiện tại kết thúc trước khi xóa tài khoản." });
+        return;
+      }
+      const accountId = safeId(accountMatch[1]);
+      const state = await store.read();
+      if (!state.accounts.some((item) => item.id === accountId)) throw new Error("Không tìm thấy tài khoản.");
+      const archived = await archiveAccountHome(accountId);
+      try {
+        const account = await store.deleteAccount(accountId);
+        sendJson(response, 200, { account, profileArchived: Boolean(archived) });
+      } catch (error) {
+        if (archived) await rename(archived.target, archived.source);
+        throw error;
+      }
+      return;
+    }
     if (request.method === "PATCH" && accountMatch) {
       sendJson(response, 200, {
         account: await store.updateAccount(accountMatch[1], await readBody(request))

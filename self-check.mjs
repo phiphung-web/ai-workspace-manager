@@ -220,6 +220,10 @@ try {
   if (!home.headers.get("content-security-policy")?.includes("default-src 'self'")) {
     throw new Error("Dashboard thiếu Content Security Policy.");
   }
+  const appScript = await (await fetch(`http://127.0.0.1:${port}/app.js`)).text();
+  if (appScript.includes("event.currentTarget.reset()")) {
+    throw new Error("Submit handler còn đọc event.currentTarget sau await.");
+  }
 
   const accountData = await request("/api/accounts", {
     method: "POST",
@@ -311,6 +315,15 @@ try {
   }
   const encryptedSecrets = await readFile(path.join(dataRoot, "secrets.json"), "utf8");
   if (encryptedSecrets.includes(fakeProviderKey)) throw new Error("API key bị lưu dạng plaintext.");
+
+  const deletedAccount = await request(`/api/accounts/${accountData.account.id}`, { method: "DELETE" });
+  const stateAfterDelete = await request("/api/state");
+  if (deletedAccount.account.id !== accountData.account.id || stateAfterDelete.state.accounts.length !== 0) {
+    throw new Error("Không xóa đúng tài khoản khỏi workspace.");
+  }
+  if (stateAfterDelete.state.chats[0].accountId !== null) {
+    throw new Error("Chat còn tham chiếu tới tài khoản đã xóa.");
+  }
 
   const rejected = await fetch(`http://127.0.0.1:${port}/api/accounts`, {
     method: "POST",

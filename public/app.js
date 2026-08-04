@@ -92,6 +92,7 @@ function openAccountDialog(account = null) {
   $("#account-dialog-eyebrow").textContent = account ? "Chỉnh sửa tài khoản" : "Tài khoản Codex";
   $("#account-dialog-title").textContent = account ? account.label : "Thêm tài khoản";
   $("#save-account").textContent = account ? "Lưu thay đổi" : "Lưu và đăng nhập";
+  $("#delete-account").classList.toggle("hidden", !account);
   $("#account-label").value = account?.label || "";
   $("#account-email").value = account?.email || "";
   $("#account-plan").value = account?.plan || "Plus";
@@ -512,6 +513,29 @@ async function confirmAccountSwitch() {
   }
 }
 
+async function deleteAccount() {
+  const accountId = app.editAccountId;
+  const account = app.state?.accounts.find((item) => item.id === accountId);
+  if (!account) return;
+  const confirmed = window.confirm(
+    `Xóa tài khoản "${account.label}" khỏi workspace?\n\nDữ liệu đăng nhập cục bộ sẽ được chuyển vào thư mục lưu trữ để có thể khôi phục.`
+  );
+  if (!confirmed) return;
+  const button = $("#delete-account");
+  button.disabled = true;
+  try {
+    await api(`/api/accounts/${accountId}`, { method: "DELETE", body: "{}" });
+    app.editAccountId = null;
+    $("#account-dialog").close();
+    await loadState();
+    toast(`Đã xóa ${account.label} khỏi workspace.`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function refreshUsage() {
   if (!app.state) {
     try {
@@ -706,6 +730,7 @@ for (const button of document.querySelectorAll(".dialog-cancel")) {
 }
 $("#cancel-switch").addEventListener("click", () => $("#switch-dialog").close());
 $("#confirm-switch").addEventListener("click", confirmAccountSwitch);
+$("#delete-account").addEventListener("click", deleteAccount);
 $("#continue-handoff").addEventListener("click", continueHandoff);
 $("#approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("once"));
 $("#auto-approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("project"));
@@ -713,21 +738,33 @@ $("#deny-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("d
 
 $("#account-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = $("#save-account");
+  submitButton.disabled = true;
   try {
     const editing = app.editAccountId;
-    const result = await api(editing ? `/api/accounts/${editing}` : "/api/accounts", {
-      method: editing ? "PATCH" : "POST",
-      body: JSON.stringify({
-        label: $("#account-label").value,
-        email: $("#account-email").value,
-        plan: $("#account-plan").value,
-        expiresAt: $("#account-expires-at").value,
-        note: $("#account-note").value,
-        ...(editing ? {} : { remaining: 100 })
-      })
-    });
+    const accountInput = {
+      label: $("#account-label").value.trim(),
+      email: $("#account-email").value.trim(),
+      plan: $("#account-plan").value,
+      expiresAt: $("#account-expires-at").value,
+      note: $("#account-note").value,
+      ...(editing ? {} : { remaining: 100 })
+    };
+    const duplicate = !editing
+      ? app.state?.accounts.find((account) =>
+        account.label.trim().toLowerCase() === accountInput.label.toLowerCase()
+        && (account.email || "").trim().toLowerCase() === accountInput.email.toLowerCase()
+      )
+      : null;
+    const result = duplicate
+      ? { account: duplicate }
+      : await api(editing ? `/api/accounts/${editing}` : "/api/accounts", {
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify(accountInput)
+      });
     app.editAccountId = null;
-    event.currentTarget.reset();
+    form.reset();
     $("#account-dialog").close();
     await loadState();
     if (!editing && result.account?.id) {
@@ -738,15 +775,20 @@ $("#account-form").addEventListener("submit", async (event) => {
       startPolling(login.job);
       toast(login.job.status === "completed"
         ? "Tài khoản đã sẵn sàng sử dụng."
-        : "Đã lưu tài khoản. Đang mở đăng nhập Codex…");
+        : duplicate
+          ? "Tài khoản đã tồn tại. Đang mở đăng nhập Codex…"
+          : "Đã lưu tài khoản. Đang mở đăng nhập Codex…");
     }
   } catch (error) {
     toast(error.message);
+  } finally {
+    submitButton.disabled = false;
   }
 });
 
 $("#provider-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   try {
     const editing = app.editProviderId;
     const apiKey = $("#provider-key").value;
@@ -762,7 +804,7 @@ $("#provider-form").addEventListener("submit", async (event) => {
       })
     });
     app.editProviderId = null;
-    event.currentTarget.reset();
+    form.reset();
     $("#provider-type").disabled = false;
     $("#provider-max-output").value = 2048;
     $("#provider-dialog").close();
@@ -775,6 +817,7 @@ $("#provider-form").addEventListener("submit", async (event) => {
 
 $("#project-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   try {
     await api("/api/projects", {
       method: "POST",
@@ -783,7 +826,7 @@ $("#project-form").addEventListener("submit", async (event) => {
         path: $("#project-path").value
       })
     });
-    event.currentTarget.reset();
+    form.reset();
     $("#project-dialog").close();
     app.activeChatId = null;
     await loadState();
@@ -794,6 +837,7 @@ $("#project-form").addEventListener("submit", async (event) => {
 
 $("#chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const project = activeProject();
   if (!project) return;
   try {
@@ -804,7 +848,7 @@ $("#chat-form").addEventListener("submit", async (event) => {
         title: $("#new-chat-title").value
       })
     });
-    event.currentTarget.reset();
+    form.reset();
     $("#chat-dialog").close();
     app.activeChatId = data.chat.id;
     await loadState();

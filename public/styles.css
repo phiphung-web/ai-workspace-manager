@@ -683,6 +683,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .button:hover:not(:disabled) { transform: translateY(-1px); }
 .button-primary { box-shadow: 0 8px 24px rgba(163, 221, 84, .1); }
 .button-secondary, .button-ghost { border-color: var(--border); }
+.button-danger {
+  margin-right: auto;
+  color: #ff9b9b;
+  border: 1px solid rgba(255, 133, 133, .25);
+  background: rgba(255, 93, 93, .07);
+}
+.button-danger:hover:not(:disabled) { border-color: rgba(255, 133, 133, .48); background: rgba(255, 93, 93, .12); }
 
 .workspace-grid { grid-template-columns: 210px minmax(430px, 1fr) 310px; }
 .chat-sidebar, .context-panel { padding: 20px 15px; background: rgba(11, 16, 22, .5); }
