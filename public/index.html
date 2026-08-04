@@ -45,6 +45,14 @@
         <div id="project-list" class="project-list"></div>
       </section>
 
+      <section class="side-section">
+        <div class="section-heading">
+          <span>AI phụ trợ</span>
+          <button id="add-provider" class="icon-button" type="button" aria-label="Thêm API provider">+</button>
+        </div>
+        <div id="provider-list" class="provider-list"></div>
+      </section>
+
       <div class="privacy-note">
         <span class="lock-icon">◆</span>
         Không lưu mật khẩu, cookie hoặc token.
@@ -106,6 +114,17 @@
                 <span id="usage-status">0 tokens</span>
               </div>
             </div>
+            <div id="handoff-banner" class="handoff-banner hidden">
+              <div>
+                <strong>Task đang chờ bàn giao</strong>
+                <span id="handoff-reason">Tài khoản hiện tại đã chạm limit.</span>
+              </div>
+              <div class="handoff-actions">
+                <select id="handoff-account" aria-label="Tài khoản tiếp quản"></select>
+                <button id="continue-handoff" class="button button-primary" type="button">Tiếp tục task</button>
+              </div>
+              <small id="handoff-git">Code và trạng thái Git đã được chụp lại.</small>
+            </div>
             <div id="messages" class="messages" aria-live="polite"></div>
             <div id="job-strip" class="job-strip hidden">
               <span class="spinner"></span>
@@ -126,6 +145,12 @@
                   <select id="sandbox-input">
                     <option value="workspace-write">Được sửa trong dự án</option>
                     <option value="read-only">Chỉ đọc</option>
+                  </select>
+                </label>
+                <label>
+                  <span>AI phụ trợ</span>
+                  <select id="auxiliary-provider">
+                    <option value="">Không dùng</option>
                   </select>
                 </label>
               </div>
@@ -158,10 +183,26 @@
               <span>Việc tiếp theo</span>
               <textarea id="next-step-input" rows="6" placeholder="Bước cụ thể mà tài khoản tiếp theo cần làm…"></textarea>
             </label>
+            <details class="context-settings">
+              <summary>Tối ưu context và chat dài</summary>
+              <label>
+                <span>Chiến lược bàn giao</span>
+                <select id="context-strategy">
+                  <option value="goal-recent">Giữ mục tiêu đầu + các lượt gần nhất</option>
+                  <option value="recent">Chỉ giữ các lượt gần nhất</option>
+                </select>
+              </label>
+              <div class="context-setting-grid">
+                <label><span>Số lượt tối đa</span><input id="context-max-messages" type="number" min="10" max="200" value="80"></label>
+                <label><span>Ngân sách ký tự</span><input id="context-budget" type="number" min="8000" max="100000" step="1000" value="48000"></label>
+              </div>
+              <label><span>Cảnh báo chat dài từ</span><input id="long-chat-threshold" type="number" min="40" max="500" value="120"></label>
+              <p>Lịch sử đầy đủ vẫn lưu local. Các giới hạn này chỉ áp dụng khi tạo capsule cho profile mới.</p>
+            </details>
             <button id="save-context" class="button button-secondary" type="button">Lưu ngữ cảnh</button>
             <div class="context-tip">
               <strong>Tiết kiệm limit</strong>
-              <p>Chỉ 8 tin nhắn gần nhất và phần tóm tắt này được dùng để nối tài khoản mới.</p>
+              <p>Tối đa 80 tin gần nhất trong ngân sách ngữ cảnh, checkpoint và trạng thái Git được dùng để nối tài khoản mới.</p>
             </div>
           </div>
         </aside>
@@ -171,8 +212,8 @@
 
   <dialog id="account-dialog">
     <form id="account-form" method="dialog">
-      <p class="eyebrow">Tài khoản mới</p>
-      <h2>Thêm nhãn quản lý</h2>
+      <p id="account-dialog-eyebrow" class="eyebrow">Tài khoản mới</p>
+      <h2 id="account-dialog-title">Thêm nhãn quản lý</h2>
       <p class="dialog-copy">Dashboard không yêu cầu mật khẩu. Bạn sẽ đăng nhập bằng cửa sổ chính thức của Codex.</p>
       <label>Tên hiển thị<input id="account-label" required maxlength="80" placeholder="Ví dụ: GPT Plus 01"></label>
       <label>Email<input id="account-email" type="email" maxlength="180" placeholder="ten@email.com"></label>
@@ -190,9 +231,11 @@
           <span>Đọc từ Codex sau khi đăng nhập</span>
         </div>
       </div>
+      <label>Thời gian hết hạn tài khoản<input id="account-expires-at" type="datetime-local"></label>
+      <label>Ghi chú<textarea id="account-note" rows="3" maxlength="1000" placeholder="Nguồn tài khoản, ngày gia hạn, lưu ý sử dụng…"></textarea></label>
       <div class="dialog-actions">
         <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
-        <button class="button button-primary" type="submit">Thêm tài khoản</button>
+        <button id="save-account" class="button button-primary" type="submit">Thêm tài khoản</button>
       </div>
     </form>
   </dialog>
@@ -207,6 +250,32 @@
       <div class="dialog-actions">
         <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
         <button class="button button-primary" type="submit">Thêm dự án</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="provider-dialog">
+    <form id="provider-form" method="dialog">
+      <p id="provider-dialog-eyebrow" class="eyebrow">AI phụ trợ</p>
+      <h2 id="provider-dialog-title">Thêm API provider</h2>
+      <p class="dialog-copy">Key được mã hóa bằng Windows DPAPI và không được trả lại trình duyệt sau khi lưu.</p>
+      <label>Loại API
+        <select id="provider-type">
+          <option value="anthropic">Claude / Anthropic</option>
+          <option value="openai">OpenAI</option>
+        </select>
+      </label>
+      <label>Tên hiển thị<input id="provider-label" required maxlength="80" placeholder="Claude Review 10M"></label>
+      <label>API key<input id="provider-key" type="password" required autocomplete="off" maxlength="4000"></label>
+      <label>Model<input id="provider-model" required maxlength="120" placeholder="Nhập model ID được cấp cho key"></label>
+      <div class="form-row">
+        <label>Token đang có<input id="provider-budget" type="number" min="0" step="1000" placeholder="10000000"></label>
+        <label>Output tối đa/lượt<input id="provider-max-output" type="number" min="256" max="8192" value="2048"></label>
+      </div>
+      <p class="dialog-copy">“Token đang có” là ngân sách do bạn khai báo. Tool trừ usage của các lượt chạy qua dashboard; việc dùng key ở nơi khác không được tự động biết.</p>
+      <div class="dialog-actions">
+        <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
+        <button id="save-provider" class="button button-primary" type="submit">Lưu provider</button>
       </div>
     </form>
   </dialog>
@@ -237,6 +306,30 @@
       <div class="dialog-actions">
         <button id="cancel-switch" class="button button-ghost" type="button">Hủy</button>
         <button id="confirm-switch" class="button button-primary" type="button">Chọn tài khoản</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="approval-dialog">
+    <div class="switch-dialog-content">
+      <p class="eyebrow">Xác nhận AI phụ trợ</p>
+      <h2 id="approval-title">Codex muốn gọi AI phụ</h2>
+      <p id="approval-reason"></p>
+      <div class="approval-grid">
+        <div><span>Provider / model</span><strong id="approval-provider">—</strong></div>
+        <div><span>Ước tính token tối đa</span><strong id="approval-tokens">—</strong></div>
+        <div><span>Ngân sách còn lại</span><strong id="approval-remaining">—</strong></div>
+        <div><span>Loại chi phí</span><strong id="approval-cost">API trả phí</strong></div>
+      </div>
+      <div class="approval-context">
+        <strong>Dữ liệu chuẩn bị gửi</strong>
+        <ul id="approval-data"></ul>
+        <small id="approval-redactions"></small>
+      </div>
+      <div class="dialog-actions">
+        <button id="deny-auxiliary" class="button button-ghost" type="button">Không dùng, Codex tiếp tục</button>
+        <button id="approve-auxiliary" class="button button-primary" type="button">Cho phép lần này</button>
+        <button id="auto-approve-auxiliary" class="button button-secondary" type="button">Tự động trong project</button>
       </div>
     </div>
   </dialog>

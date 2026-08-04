@@ -8,6 +8,13 @@ import { randomUUID } from "node:crypto";
 import { Store } from "./lib/store.mjs";
 import { cleanText, isAllowedOrigin, safeId } from "./lib/security.mjs";
 import { readCodexAccountMetrics } from "./lib/app-server-client.mjs";
+import { makeBridgePrompt } from "./lib/context-bridge.mjs";
+import { buildHandoffCapsule, isQuotaInterruption, suggestHandoffAccount } from "./lib/handoff.mjs";
+import { readRepoState } from "./lib/repo-state.mjs";
+import { SecretVault } from "./lib/secret-vault.mjs";
+import { askProvider, probeProvider } from "./lib/ai-provider-client.mjs";
+import { buildAuxiliaryContext } from "./lib/auxiliary-context.mjs";
+import { appendAIUsage, appendHistory, writeCurrentState } from "./lib/project-memory.mjs";
 
 const execFileAsync = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +24,7 @@ const profilesRoot = path.join(dataRoot, "profiles");
 const port = Math.max(1024, Math.min(65535, Number(process.env.CODEX_MANAGER_PORT) || 4320));
 const host = "127.0.0.1";
 const store = new Store(dataRoot);
+const secretVault = new SecretVault(dataRoot);
 const jobs = new Map();
 const codexBin = await findCodexBinary();
 
@@ -110,12 +118,16 @@ function publicJob(job) {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     events: job.events.slice(-160),
-    error: job.error || null
+    error: job.error || null,
+    handoff: job.handoff || null,
+    approval: job.approval || null,
+    auxiliaryReport: job.auxiliaryReport || null,
+    approvalMode: job.approvalMode || null
   };
 }
 
 function hasRunningJob() {
-  return [...jobs.values()].some((job) => ["queued", "running"].includes(job.status));
+  return [...jobs.values()].some((job) => ["queued", "running", "awaiting_approval"].includes(job.status));
 }
 
 function accountHome(accountId) {
@@ -156,6 +168,7 @@ async function refreshAccountMetrics(accountId) {
       resetAt: metrics.resetsAt || "",
       rateLimits: metrics.rateLimits,
       usageSummary: metrics.usageSummary,
+      dailyUsageBuckets: metrics.dailyUsageBuckets,
       lastSyncedAt: new Date().toISOString(),
       syncError: ""
     });
@@ -163,6 +176,29 @@ async function refreshAccountMetrics(accountId) {
     await store.updateAccount(accountId, {
       syncError: cleanText(error.message, 2000),
       lastSyncedAt: new Date().toISOString()
+    });
+    throw error;
+  }
+}
+
+async function refreshProvider(providerId) {
+  const state = await store.read();
+  const provider = state.providers?.find((item) => item.id === safeId(providerId));
+  if (!provider) throw new Error("Không tìm thấy API provider.");
+  try {
+    const result = await probeProvider(provider, await secretVault.get(provider.id));
+    return store.updateProvider(provider.id, {
+      availability: "available",
+      availableModels: result.models,
+      selectedModelAvailable: result.selectedModelAvailable,
+      lastCheckedAt: new Date().toISOString(),
+      checkError: ""
+    });
+  } catch (error) {
+    await store.updateProvider(provider.id, {
+      availability: "error",
+      lastCheckedAt: new Date().toISOString(),
+      checkError: cleanText(error.message, 2000)
     });
     throw error;
   }
@@ -178,33 +214,6 @@ function pushEvent(job, type, message, extra = {}) {
   });
   if (job.events.length > 300) job.events.splice(0, job.events.length - 300);
   job.updatedAt = new Date().toISOString();
-}
-
-function makeBridgePrompt(state, project, chat, message) {
-  const recent = chat.messages
-    .slice(-8)
-    .map((item) => `${item.role === "user" ? "Người dùng" : "Codex"}: ${item.content}`)
-    .join("\n\n");
-  return [
-    "Tiếp tục một cuộc trò chuyện Codex local sau khi người dùng đổi tài khoản.",
-    "Đây vẫn là cùng một cuộc trò chuyện trên dashboard, nhưng là một upstream session mới.",
-    "Trước khi sửa code, hãy đọc AGENTS.md nếu có, kiểm tra git status và git diff để xác nhận trạng thái thật.",
-    "",
-    `Dự án: ${project.name}`,
-    `Thư mục: ${project.path}`,
-    "",
-    "Tóm tắt hiện tại:",
-    project.summary || "Chưa có tóm tắt. Hãy suy ra trạng thái từ repository và các tin nhắn gần nhất.",
-    "",
-    "Việc tiếp theo:",
-    project.nextStep || "Tiếp tục theo yêu cầu mới nhất của người dùng.",
-    "",
-    "Các tin nhắn gần nhất:",
-    recent || "Chưa có.",
-    "",
-    "Yêu cầu mới:",
-    message
-  ].join("\n");
 }
 
 function codexArgs({ threadId, project, message, model, sandbox }) {
@@ -234,7 +243,7 @@ function codexArgs({ threadId, project, message, model, sandbox }) {
   ];
 }
 
-function runCodexChat({ state, project, chat, message, model, sandbox }) {
+function runCodexChat({ state, project, chat, message, model, sandbox, auxiliaryProviderId = null, approvalGranted = false, approvalMode = null }) {
   const job = {
     id: randomUUID(),
     type: "chat",
@@ -245,13 +254,101 @@ function runCodexChat({ state, project, chat, message, model, sandbox }) {
     updatedAt: new Date().toISOString(),
     events: [],
     error: null,
+    message,
+    model: cleanText(model, 100),
+    sandbox: ["read-only", "workspace-write"].includes(sandbox) ? sandbox : "workspace-write",
+    handoff: null,
+    auxiliaryProviderId: safeId(auxiliaryProviderId),
     process: null
   };
+  const requestedAuxiliary = state.providers?.find((item) => item.id === job.auxiliaryProviderId);
+  const autoApproved = Boolean(requestedAuxiliary && project.auxiliaryPolicy?.autoApprovedProviderIds?.includes(requestedAuxiliary.id));
+  job.approvalMode = requestedAuxiliary ? (approvalMode || (autoApproved ? "auto" : approvalGranted ? "once" : null)) : null;
+  if (requestedAuxiliary?.enabled && requestedAuxiliary.keyConfigured && !approvalGranted && !autoApproved) {
+    const context = buildAuxiliaryContext({ provider: requestedAuxiliary, project, message });
+    const remainingTokens = requestedAuxiliary.tokenBudget > 0
+      ? Math.max(0, Number(requestedAuxiliary.tokenBudget) - Number(requestedAuxiliary.usage?.totalTokens || 0))
+      : null;
+    job.status = "awaiting_approval";
+    job.approval = {
+      ...context.preview,
+      remainingTokens,
+      paidApi: true
+    };
+    job.pendingRun = { state, project, chat, message, model, sandbox, auxiliaryProviderId };
+    jobs.set(job.id, job);
+    queueMicrotask(() => store.updateChat(chat.id, { status: "awaiting_approval" }).catch(() => {}));
+    return job;
+  }
   jobs.set(job.id, job);
 
   queueMicrotask(async () => {
     const bridge = Boolean(chat.needsBridge);
-    const prompt = bridge ? makeBridgePrompt(state, project, chat, message) : message;
+    let prompt = bridge ? makeBridgePrompt(project, chat, message, {
+      capsule: chat.handoff?.capsule,
+      ...project.contextConfig
+    }) : message;
+    const auxiliary = state.providers?.find((item) => item.id === job.auxiliaryProviderId);
+    if (auxiliary?.enabled && auxiliary.keyConfigured) {
+      if (job.approvalMode === "auto") {
+        pushEvent(job, "notice", `Tự động cho phép ${auxiliary.label} theo cấu hình project.`, {
+          providerId: auxiliary.id,
+          model: auxiliary.model
+        });
+      }
+      const remaining = Number(auxiliary.tokenBudget || 0) - Number(auxiliary.usage?.totalTokens || 0);
+      if (auxiliary.tokenBudget > 0 && remaining <= 0) {
+        pushEvent(job, "warning", `${auxiliary.label} đã hết ngân sách token do tool theo dõi; Codex tiếp tục một mình.`);
+      } else {
+        try {
+          pushEvent(job, "status", `Đang lấy phân tích phụ trợ từ ${auxiliary.label}…`);
+          const auxiliaryContext = buildAuxiliaryContext({ provider: auxiliary, project, message });
+          const advice = await askProvider(auxiliary, await secretVault.get(auxiliary.id), auxiliaryContext.prompt);
+          const updatedProvider = await store.addProviderUsage(auxiliary.id, advice.usage);
+          job.auxiliaryReport = {
+            providerLabel: auxiliary.label,
+            model: auxiliary.model,
+            usage: advice.usage,
+            remainingTokens: updatedProvider.tokenBudget > 0
+              ? Math.max(0, updatedProvider.tokenBudget - updatedProvider.usage.totalTokens)
+              : null
+          };
+          await appendAIUsage({
+            project,
+            record: {
+              chatId: chat.id,
+              providerId: auxiliary.id,
+              provider: auxiliary.label,
+              type: auxiliary.type,
+              model: auxiliary.model,
+              reason: auxiliaryContext.preview.reason,
+              dataItems: auxiliaryContext.preview.dataItems,
+              files: auxiliaryContext.preview.files,
+              redactions: auxiliaryContext.preview.redactions,
+              approved: true,
+              usage: advice.usage,
+              appliedByCodex: "pending-verification"
+            }
+          });
+          pushEvent(job, "provider", `${auxiliary.label}: ${advice.usage.totalTokens} tokens`, { usage: advice.usage });
+          prompt = [
+            prompt,
+            "",
+            `PHÂN TÍCH TỪ AI PHỤ TRỢ (${auxiliary.label} / ${auxiliary.model}):`,
+            advice.text,
+            "",
+            "Hãy tự kiểm tra phân tích trên với repository. Codex vẫn chịu trách nhiệm quyết định, sửa code và chạy test."
+          ].join("\n");
+        } catch (error) {
+          pushEvent(job, "warning", `Không gọi được ${auxiliary.label}: ${error.message}. Codex tiếp tục một mình.`);
+          await store.updateProvider(auxiliary.id, {
+            availability: "error",
+            checkError: cleanText(error.message, 2000),
+            lastCheckedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
     const accountThread = chat.threadByAccount?.[state.activeAccountId]
       || (chat.accountId === state.activeAccountId ? chat.threadId : null);
     const args = codexArgs({
@@ -326,10 +423,65 @@ function runCodexChat({ state, project, chat, message, model, sandbox }) {
       if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
       if (job.status === "cancelled" || job.status === "error") return;
       if (code !== 0) {
-        job.status = "error";
         job.error = cleanText(stderr, 12000) || `Codex kết thúc với mã ${code}.`;
         pushEvent(job, "error", job.error);
-        await store.updateChat(chat.id, { status: "error" });
+        let refreshedAccount = null;
+        try {
+          refreshedAccount = await refreshAccountMetrics(state.activeAccountId);
+        } catch {}
+        const quotaInterrupted = isQuotaInterruption({
+          error: job.error,
+          events: job.events,
+          rateLimits: refreshedAccount?.rateLimits
+        });
+        if (!quotaInterrupted) {
+          job.status = "error";
+          await store.updateChat(chat.id, { status: "error" });
+          return;
+        }
+
+        if (lastAssistant) {
+          await store.appendMessage(chat.id, "assistant", lastAssistant, { interrupted: true });
+        }
+        const repoState = await readRepoState(project.path);
+        const latestState = await store.read();
+        const latestChat = latestState.chats.find((item) => item.id === chat.id) || chat;
+        const suggested = suggestHandoffAccount(latestState.accounts, state.activeAccountId);
+        const capsule = buildHandoffCapsule({
+          project,
+          chat: latestChat,
+          job,
+          repoState,
+          reason: job.error
+        });
+        const handoff = {
+          status: "pending",
+          sourceAccountId: state.activeAccountId,
+          suggestedAccountId: suggested?.id || null,
+          pendingMessage: message,
+          model: job.model,
+          sandbox: job.sandbox,
+          auxiliaryProviderId: job.auxiliaryProviderId || null,
+          capsule,
+          createdAt: new Date().toISOString()
+        };
+        await store.updateChat(chat.id, {
+          status: "needs_handoff",
+          needsBridge: true,
+          handoff
+        });
+        try {
+          const account = latestState.accounts.find((item) => item.id === state.activeAccountId);
+          await writeCurrentState({ project, chat: latestChat, account, repoState, status: "needs_handoff", nextAction: message });
+          await appendHistory({ project, chat: latestChat, account, event: "Quota handoff created", detail: `Pending request: ${message}` });
+        } catch (error) {
+          pushEvent(job, "warning", `Không cập nhật được project memory: ${error.message}`);
+        }
+        job.status = "needs_handoff";
+        job.handoff = handoff;
+        pushEvent(job, "warning", suggested
+          ? `Limit đã chạm. Có thể tiếp tục bằng ${suggested.label}.`
+          : "Limit đã chạm. Chưa có tài khoản đã đăng nhập còn hạn mức.");
         return;
       }
       if (lastAssistant) await store.appendMessage(chat.id, "assistant", lastAssistant);
@@ -351,6 +503,7 @@ function runCodexChat({ state, project, chat, message, model, sandbox }) {
         accountId: state.activeAccountId,
         threadId: threadId || chat.threadId,
         needsBridge: false,
+        handoff: null,
         upstreamSessions: nextSessions,
         threadByAccount
       });
@@ -363,6 +516,16 @@ function runCodexChat({ state, project, chat, message, model, sandbox }) {
       }
       job.status = "completed";
       job.updatedAt = new Date().toISOString();
+      try {
+        const completedState = await store.read();
+        const completedChat = completedState.chats.find((item) => item.id === chat.id) || chat;
+        const account = completedState.accounts.find((item) => item.id === state.activeAccountId);
+        const repoState = await readRepoState(project.path);
+        await writeCurrentState({ project, chat: completedChat, account, repoState, status: "ready", nextAction: project.nextStep });
+        await appendHistory({ project, chat: completedChat, account, event: "Codex turn completed", detail: lastAssistant || "Turn completed without a final message." });
+      } catch (error) {
+        pushEvent(job, "warning", `Không cập nhật được project memory: ${error.message}`);
+      }
     });
   });
   return job;
@@ -497,18 +660,48 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/status") {
       const state = await store.read();
+      const activeJob = [...jobs.values()].find((job) => ["queued", "running", "awaiting_approval"].includes(job.status));
       sendJson(response, 200, {
         ok: true,
         localOnly: true,
         port,
         dataRoot,
         codex: await codexStatus(state.activeAccountId),
-        running: hasRunningJob()
+        running: hasRunningJob(),
+        activeJob: activeJob ? publicJob(activeJob) : null
       });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
       sendJson(response, 200, { state: await store.publicState() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/providers") {
+      const body = await readBody(request);
+      const apiKey = cleanText(body.apiKey, 4000);
+      if (!apiKey) throw new Error("API key không được để trống.");
+      const provider = await store.addProvider(body);
+      await secretVault.set(provider.id, apiKey);
+      sendJson(response, 201, {
+        provider: await store.updateProvider(provider.id, { keyConfigured: true })
+      });
+      return;
+    }
+    const providerMatch = url.pathname.match(/^\/api\/providers\/([a-z0-9-]+)$/i);
+    if (request.method === "PATCH" && providerMatch) {
+      const body = await readBody(request);
+      const providerId = safeId(providerMatch[1]);
+      if (body.apiKey) {
+        await secretVault.set(providerId, cleanText(body.apiKey, 4000));
+        body.keyConfigured = true;
+      }
+      delete body.apiKey;
+      sendJson(response, 200, { provider: await store.updateProvider(providerId, body) });
+      return;
+    }
+    const providerCheckMatch = url.pathname.match(/^\/api\/providers\/([a-z0-9-]+)\/check$/i);
+    if (request.method === "POST" && providerCheckMatch) {
+      sendJson(response, 200, { provider: await refreshProvider(providerCheckMatch[1]) });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/accounts") {
@@ -618,7 +811,49 @@ const server = http.createServer(async (request, response) => {
         chat: latestChat,
         message,
         model: cleanText(body.model, 100),
-        sandbox: body.sandbox
+        sandbox: body.sandbox,
+        auxiliaryProviderId: body.auxiliaryProviderId
+      });
+      sendJson(response, 202, { job: publicJob(job) });
+      return;
+    }
+    const handoffContinueMatch = url.pathname.match(/^\/api\/chats\/([a-z0-9-]+)\/handoff\/continue$/i);
+    if (request.method === "POST" && handoffContinueMatch) {
+      if (hasRunningJob()) {
+        sendJson(response, 409, { error: "Đang có một tác vụ chạy. Hãy đợi hoặc dừng tác vụ đó." });
+        return;
+      }
+      const body = await readBody(request);
+      const targetAccountId = safeId(body.accountId);
+      const state = await store.read();
+      const chat = state.chats.find((item) => item.id === safeId(handoffContinueMatch[1]));
+      if (!chat?.handoff || chat.handoff.status !== "pending") {
+        throw new Error("Cuộc trò chuyện này không có task đang chờ bàn giao.");
+      }
+      const target = state.accounts.find((account) => account.id === targetAccountId);
+      if (!target || !target.authenticated) throw new Error("Tài khoản đích chưa đăng nhập.");
+      if (target.id === chat.handoff.sourceAccountId) throw new Error("Hãy chọn tài khoản khác để tiếp tục.");
+      if (target.status === "disabled" || target.rateLimits?.rateLimitReachedType) {
+        throw new Error("Tài khoản đích hiện không sẵn sàng.");
+      }
+      const project = state.projects.find((item) => item.id === chat.projectId);
+      if (!project) throw new Error("Không tìm thấy dự án của cuộc trò chuyện.");
+      await store.selectAccount(target.id);
+      await store.updateChat(chat.id, {
+        status: "ready",
+        needsBridge: true,
+        handoff: { ...chat.handoff, selectedAccountId: target.id }
+      });
+      const latestState = await store.read();
+      const latestChat = latestState.chats.find((item) => item.id === chat.id);
+      const job = runCodexChat({
+        state: latestState,
+        project,
+        chat: latestChat,
+        message: chat.handoff.pendingMessage,
+        model: chat.handoff.model,
+        sandbox: chat.handoff.sandbox,
+        auxiliaryProviderId: chat.handoff.auxiliaryProviderId
       });
       sendJson(response, 202, { job: publicJob(job) });
       return;
@@ -631,6 +866,62 @@ const server = http.createServer(async (request, response) => {
         return;
       }
       sendJson(response, 200, { job: publicJob(job) });
+      return;
+    }
+    const approveMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]+)\/approve$/i);
+    if (request.method === "POST" && approveMatch) {
+      const approvalJob = jobs.get(approveMatch[1]);
+      if (!approvalJob || approvalJob.status !== "awaiting_approval" || !approvalJob.pendingRun) {
+        throw new Error("Yêu cầu phê duyệt không còn khả dụng.");
+      }
+      const approvalBody = await readBody(request);
+      const scope = approvalBody.scope === "project" ? "project" : "once";
+      if (scope === "project") {
+        const pendingProject = approvalJob.pendingRun.project;
+        const ids = new Set(pendingProject.auxiliaryPolicy?.autoApprovedProviderIds || []);
+        ids.add(approvalJob.approval.providerId);
+        const updatedProject = await store.updateProject(pendingProject.id, {
+          auxiliaryPolicy: { autoApprovedProviderIds: [...ids] }
+        });
+        approvalJob.pendingRun.project = updatedProject;
+      }
+      approvalJob.status = "approved";
+      approvalJob.updatedAt = new Date().toISOString();
+      const nextJob = runCodexChat({ ...approvalJob.pendingRun, approvalGranted: true, approvalMode: scope === "project" ? "auto" : "once" });
+      approvalJob.pendingRun = null;
+      sendJson(response, 202, { job: publicJob(nextJob) });
+      return;
+    }
+    const denyMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]+)\/deny$/i);
+    if (request.method === "POST" && denyMatch) {
+      const approvalJob = jobs.get(denyMatch[1]);
+      if (!approvalJob || approvalJob.status !== "awaiting_approval" || !approvalJob.pendingRun) {
+        throw new Error("Yêu cầu phê duyệt không còn khả dụng.");
+      }
+      const pending = approvalJob.pendingRun;
+      approvalJob.status = "denied";
+      approvalJob.updatedAt = new Date().toISOString();
+      try {
+        await appendAIUsage({
+          project: pending.project,
+          record: {
+            chatId: pending.chat.id,
+            providerId: approvalJob.approval?.providerId,
+            provider: approvalJob.approval?.providerLabel,
+            type: approvalJob.approval?.providerType,
+            model: approvalJob.approval?.model,
+            reason: approvalJob.approval?.reason,
+            dataItems: approvalJob.approval?.dataItems,
+            files: approvalJob.approval?.files,
+            approved: false,
+            usage: null,
+            appliedByCodex: false
+          }
+        });
+      } catch {}
+      const nextJob = runCodexChat({ ...pending, auxiliaryProviderId: null, approvalGranted: true });
+      approvalJob.pendingRun = null;
+      sendJson(response, 202, { job: publicJob(nextJob) });
       return;
     }
     const cancelMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9-]+)\/cancel$/i);

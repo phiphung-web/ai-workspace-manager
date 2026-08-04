@@ -3,6 +3,8 @@ const app = {
   activeChatId: null,
   activeJobId: null,
   switchAccountId: null,
+  editAccountId: null,
+  editProviderId: null,
   pollTimer: null,
   toastTimer: null
 };
@@ -54,6 +56,67 @@ function formatReset(value) {
   }).format(new Date(value));
 }
 
+function formatDuration(minutes) {
+  if (!Number.isFinite(Number(minutes))) return "cửa sổ";
+  const value = Number(minutes);
+  if (value % 1440 === 0) return `${value / 1440} ngày`;
+  if (value % 60 === 0) return `${value / 60} giờ`;
+  return `${value} phút`;
+}
+
+function quotaWindow(label, window) {
+  if (!window) return null;
+  const row = node("div", "quota-window");
+  const remaining = Number.isFinite(Number(window.remainingPercent))
+    ? Math.max(0, Math.min(100, Number(window.remainingPercent)))
+    : null;
+  const title = node("span", "", `${label} · ${formatDuration(window.windowDurationMins)}`);
+  const value = node("strong", "", remaining === null ? "—" : `${Math.round(remaining)}%`);
+  const reset = node("small", "", window.resetsAtIso ? `reset ${formatReset(window.resetsAtIso)}` : "chưa có giờ reset");
+  row.append(title, value, reset);
+  return row;
+}
+
+function expiryMeta(expiresAt) {
+  if (!expiresAt) return null;
+  const expiry = new Date(expiresAt.includes("T") ? expiresAt : `${expiresAt}T23:59:59`);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const days = Math.ceil((expiry.getTime() - Date.now()) / 86400000);
+  if (days < 0) return { text: `Đã hết hạn ${formatReset(expiry)}`, expired: true };
+  if (days === 0) return { text: "Hết hạn hôm nay", expired: false };
+  return { text: `Hết hạn ${formatReset(expiry)} · còn ${days} ngày`, expired: false };
+}
+
+function openAccountDialog(account = null) {
+  app.editAccountId = account?.id || null;
+  $("#account-dialog-eyebrow").textContent = account ? "Chỉnh sửa tài khoản" : "Tài khoản mới";
+  $("#account-dialog-title").textContent = account ? account.label : "Thêm nhãn quản lý";
+  $("#save-account").textContent = account ? "Lưu thay đổi" : "Thêm tài khoản";
+  $("#account-label").value = account?.label || "";
+  $("#account-email").value = account?.email || "";
+  $("#account-plan").value = account?.plan || "Plus";
+  $("#account-expires-at").value = account?.expiresAt || "";
+  $("#account-note").value = account?.note || "";
+  $("#account-dialog").showModal();
+}
+
+function openProviderDialog(provider = null) {
+  app.editProviderId = provider?.id || null;
+  $("#provider-dialog-eyebrow").textContent = provider ? "Cấu hình AI phụ trợ" : "AI phụ trợ";
+  $("#provider-dialog-title").textContent = provider ? provider.label : "Thêm API provider";
+  $("#save-provider").textContent = provider ? "Lưu thay đổi" : "Lưu provider";
+  $("#provider-type").value = provider?.type || "anthropic";
+  $("#provider-type").disabled = Boolean(provider);
+  $("#provider-label").value = provider?.label || "";
+  $("#provider-key").value = "";
+  $("#provider-key").required = !provider;
+  $("#provider-key").placeholder = provider ? "Để trống nếu giữ key hiện tại" : "";
+  $("#provider-model").value = provider?.model || "";
+  $("#provider-budget").value = provider?.tokenBudget || "";
+  $("#provider-max-output").value = provider?.maxOutputTokens || 2048;
+  $("#provider-dialog").showModal();
+}
+
 function activeProject() {
   return app.state?.projects.find((item) => item.id === app.state.activeProjectId) || null;
 }
@@ -77,15 +140,25 @@ function renderAccounts() {
   const list = $("#account-list");
   list.replaceChildren();
   for (const account of app.state.accounts) {
-    const card = node("button", `account-card${account.id === app.state.activeAccountId ? " active" : ""}`);
-    card.type = "button";
+    const card = node("div", `account-card${account.id === app.state.activeAccountId ? " active" : ""}`);
+    card.role = "button";
+    card.tabIndex = 0;
     card.title = account.id === app.state.activeAccountId ? "Tài khoản đang chọn" : "Đăng nhập tài khoản này";
 
     const top = node("div", "account-top");
-    const dot = node("span", `status-dot ${account.status === "available" ? "online" : "warning"}`);
+    const expiry = expiryMeta(account.expiresAt);
+    const exhausted = Number(account.remaining) <= 0 || Boolean(account.rateLimits?.rateLimitReachedType) || expiry?.expired;
+    const dot = node("span", `status-dot ${account.status === "available" && !exhausted ? "online" : "warning"}`);
     const title = node("strong", "", account.label);
     const plan = node("span", "plan-badge", account.plan);
-    top.append(dot, title, plan);
+    const edit = node("button", "account-edit", "✎");
+    edit.type = "button";
+    edit.title = "Sửa ngày hết hạn và ghi chú";
+    edit.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAccountDialog(account);
+    });
+    top.append(dot, title, plan, edit);
 
     const loginState = account.authenticated ? "đã đăng nhập" : "chưa đăng nhập";
     const email = node("small", "", `${account.email || "Chưa ghi email"} · ${loginState}`);
@@ -104,14 +177,27 @@ function renderAccounts() {
           : "Đăng nhập để tự đọc limit";
     const syncMeta = node("small", `sync-meta${account.syncError ? " error" : ""}`, syncText);
     card.append(top, email, usage, syncMeta);
+    if (expiry) card.append(node("small", `account-expiry${expiry.expired ? " expired" : ""}`, expiry.text));
+    if (account.note) card.append(node("small", "account-note", account.note));
+    const primary = quotaWindow("Ngắn hạn", account.rateLimits?.primary);
+    const secondary = quotaWindow("Dài hạn", account.rateLimits?.secondary);
+    if (primary || secondary) {
+      const windows = node("div", "quota-windows");
+      if (primary) windows.append(primary);
+      if (secondary) windows.append(secondary);
+      card.append(windows);
+    }
     card.addEventListener("click", () => requestAccountSwitch(account));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") requestAccountSwitch(account);
+    });
     list.append(card);
   }
   if (!app.state.accounts.length) {
     const empty = node("button", "account-card");
     empty.type = "button";
     empty.textContent = "＋ Thêm tài khoản đầu tiên";
-    empty.addEventListener("click", () => $("#account-dialog").showModal());
+    empty.addEventListener("click", () => openAccountDialog());
     list.append(empty);
   }
 }
@@ -139,6 +225,99 @@ function renderProjects() {
     empty.type = "button";
     empty.textContent = "＋ Thêm thư mục dự án";
     empty.addEventListener("click", () => $("#project-dialog").showModal());
+    list.append(empty);
+  }
+}
+
+function renderProviders() {
+  const list = $("#provider-list");
+  const selector = $("#auxiliary-provider");
+  const selected = selector.value;
+  list.replaceChildren();
+  selector.replaceChildren(new Option("Không dùng", ""));
+  for (const provider of app.state.providers || []) {
+    const used = Number(provider.usage?.totalTokens || 0);
+    const budget = Number(provider.tokenBudget || 0);
+    const remaining = Math.max(0, budget - used);
+    const percent = budget > 0 ? Math.max(0, Math.min(100, remaining / budget * 100)) : null;
+    const budgetExhausted = budget > 0 && remaining <= 0;
+    const budgetLow = budget > 0 && percent <= 20;
+    const project = activeProject();
+    const autoApproved = Boolean(project?.auxiliaryPolicy?.autoApprovedProviderIds?.includes(provider.id));
+    const card = node("div", "provider-card");
+    const top = node("div", "provider-top");
+    const dotClass = provider.availability === "available" && !budgetExhausted && !budgetLow
+      ? "online"
+      : provider.availability === "error" || budgetExhausted || budgetLow ? "warning" : "";
+    top.append(
+      node("span", `status-dot ${dotClass}`),
+      node("strong", "", provider.label),
+      node("span", "plan-badge", provider.type === "anthropic" ? "CLAUDE" : "OPENAI")
+    );
+    const modelState = provider.selectedModelAvailable === false ? " · model không có trong key" : "";
+    card.append(top, node("small", "", `${provider.model || "Chưa chọn model"}${modelState}${autoApproved ? " · TỰ ĐỘNG TRONG PROJECT" : ""}`));
+    const usage = node("div", "usage-row");
+    const bar = node("span", "usage-bar");
+    const fill = node("i");
+    fill.style.width = `${percent ?? 0}%`;
+    bar.append(fill);
+    usage.append(bar, node("span", "", percent === null ? "—" : `${Math.round(percent)}%`));
+    card.append(usage);
+    card.append(node("small", "", budget > 0
+      ? `${budgetExhausted ? "Hết ngân sách" : `Còn ${compactNumber(remaining)}`} / ${compactNumber(budget)} tokens · ${provider.usage?.calls || 0} lượt`
+      : `Đã dùng ${compactNumber(used)} tokens · chưa đặt ngân sách`));
+    card.append(node("small", "", `In ${compactNumber(provider.usage?.inputTokens)} · Cache ${compactNumber(provider.usage?.cachedInputTokens)} · Out ${compactNumber(provider.usage?.outputTokens)}`));
+    if (provider.checkError) card.append(node("small", "provider-error", provider.checkError));
+    const actions = node("div", "provider-actions");
+    const status = node("span", "", provider.lastCheckedAt ? `Kiểm tra ${formatTime(provider.lastCheckedAt)}` : "Chưa kiểm tra key");
+    const buttons = node("div", "", "");
+    const edit = node("button", "", "Cấu hình");
+    edit.type = "button";
+    edit.addEventListener("click", () => openProviderDialog(provider));
+    const check = node("button", "", "Kiểm tra");
+    check.type = "button";
+    check.addEventListener("click", async () => {
+      check.disabled = true;
+      check.textContent = "…";
+      try {
+        await api(`/api/providers/${provider.id}/check`, { method: "POST", body: "{}" });
+        toast(`${provider.label} đang khả dụng.`);
+      } catch (error) {
+        toast(error.message);
+      }
+      await loadState();
+    });
+    buttons.append(edit, check);
+    if (autoApproved) {
+      const disableAuto = node("button", "", "Tắt tự động");
+      disableAuto.type = "button";
+      disableAuto.addEventListener("click", async () => {
+        const ids = (project.auxiliaryPolicy?.autoApprovedProviderIds || []).filter((id) => id !== provider.id);
+        try {
+          await api(`/api/projects/${project.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ auxiliaryPolicy: { autoApprovedProviderIds: ids } })
+          });
+          await loadState();
+          toast(`Đã tắt tự động cho ${provider.label} trong project này.`);
+        } catch (error) {
+          toast(error.message);
+        }
+      });
+      buttons.prepend(disableAuto);
+    }
+    actions.append(status, buttons);
+    card.append(actions);
+    list.append(card);
+
+    if (provider.enabled && provider.keyConfigured && !budgetExhausted) {
+      const option = new Option(`${provider.label} · ${provider.model || "chưa model"}`, provider.id);
+      selector.append(option);
+    }
+  }
+  selector.value = [...selector.options].some((option) => option.value === selected) ? selected : "";
+  if (!(app.state.providers || []).length) {
+    const empty = node("small", "sync-meta", "Chưa có OpenAI/Claude API.");
     list.append(empty);
   }
 }
@@ -189,6 +368,11 @@ function renderContext() {
   if (project) {
     $("#summary-input").value = project.summary || "";
     $("#next-step-input").value = project.nextStep || "";
+    const config = project.contextConfig || {};
+    $("#context-strategy").value = config.strategy || "goal-recent";
+    $("#context-max-messages").value = config.maxHistoryMessages || 80;
+    $("#context-budget").value = config.historyBudget || 48000;
+    $("#long-chat-threshold").value = config.longChatThreshold || 120;
   }
 }
 
@@ -216,9 +400,38 @@ function renderConversation() {
       : "Chưa tạo Codex session";
   const totalTokens = chat.usage.inputTokens + chat.usage.outputTokens;
   $("#usage-status").textContent = `${compactNumber(totalTokens)} tokens`;
+  const longThreshold = activeProject()?.contextConfig?.longChatThreshold || 120;
   $("#bridge-note").textContent = chat.needsBridge
-    ? "Lượt tiếp theo sẽ dùng tóm tắt + 8 tin gần nhất"
-    : "Lịch sử được lưu local";
+    ? "Lượt tiếp theo dùng capsule + lịch sử đã tối ưu"
+    : chat.messages.length >= longThreshold
+      ? `Chat dài (${chat.messages.length} lượt) · handoff sẽ tối ưu context`
+      : "Lịch sử được lưu local";
+
+  const handoff = chat.handoff?.status === "pending" ? chat.handoff : null;
+  const banner = $("#handoff-banner");
+  banner.classList.toggle("hidden", !handoff);
+  if (handoff) {
+    const source = app.state.accounts.find((account) => account.id === handoff.sourceAccountId);
+    $("#handoff-reason").textContent = `${source?.label || "Tài khoản trước"} đã chạm limit. Chọn profile khác để tiếp quản đúng task này.`;
+    const select = $("#handoff-account");
+    select.replaceChildren();
+    const candidates = app.state.accounts.filter((account) =>
+      account.id !== handoff.sourceAccountId && account.authenticated && account.status !== "disabled"
+      && Number(account.remaining) > 0 && !account.rateLimits?.rateLimitReachedType
+      && !expiryMeta(account.expiresAt)?.expired
+    );
+    for (const account of candidates) {
+      const option = node("option", "", `${account.label} · ${Math.round(account.remaining)}%`);
+      option.value = account.id;
+      option.selected = account.id === handoff.suggestedAccountId;
+      select.append(option);
+    }
+    $("#continue-handoff").disabled = !candidates.length;
+    const repo = handoff.capsule?.repoState;
+    $("#handoff-git").textContent = repo?.available
+      ? `Snapshot: ${repo.branch} · ${repo.commit.slice(0, 8)} · working tree ${repo.workingTree === "clean" ? "sạch" : "có thay đổi dở dang"}.`
+      : "Không đọc được Git snapshot; Codex mới sẽ tự kiểm tra thư mục trước khi làm.";
+  }
 
   const messages = $("#messages");
   messages.replaceChildren();
@@ -231,6 +444,7 @@ function renderConversation() {
 function render() {
   renderAccounts();
   renderProjects();
+  renderProviders();
   renderChats();
   renderTopbar();
   renderContext();
@@ -261,6 +475,7 @@ async function loadStatus() {
       : data.codex.installed
         ? "Codex chưa đăng nhập"
         : "Chưa tìm thấy Codex CLI";
+    if (!app.activeJobId && data.activeJob) startPolling(data.activeJob);
   } catch {
     $("#codex-status").textContent = "Không kết nối được server";
     $("#codex-dot").className = "status-dot warning";
@@ -324,20 +539,50 @@ async function refreshUsage() {
 
 function setJob(job) {
   app.activeJobId = job?.id || null;
-  const running = job && ["queued", "running"].includes(job.status);
+  const running = job && ["queued", "running", "awaiting_approval"].includes(job.status);
   $("#job-strip").classList.toggle("hidden", !running);
   $("#send-message").disabled = Boolean(running);
   $("#message-input").disabled = Boolean(running);
   if (running) {
-    $("#job-label").textContent = job.type === "login" ? "Đang đổi tài khoản…" : "Codex đang làm việc…";
+    $("#job-label").textContent = job.status === "awaiting_approval"
+      ? "Đang chờ bạn xác nhận AI phụ trợ…"
+      : job.type === "login" ? "Đang đổi tài khoản…" : "Codex đang làm việc…";
     const lastEvent = job.events.at(-1);
     $("#job-event").textContent = lastEvent?.message || "Đang chuẩn bị";
   }
 }
 
+function showApproval(job) {
+  const approval = job.approval;
+  if (!approval) return;
+  $("#approval-title").textContent = `Codex muốn dùng ${approval.providerLabel}`;
+  $("#approval-reason").textContent = approval.reason;
+  $("#approval-provider").textContent = `${approval.providerType} / ${approval.model}`;
+  $("#approval-tokens").textContent = `~${compactNumber(approval.estimatedMaximumTokens)} tokens`;
+  $("#approval-remaining").textContent = approval.remainingTokens === null
+    ? "Chưa đặt ngân sách"
+    : `${compactNumber(approval.remainingTokens)} tokens`;
+  $("#approval-cost").textContent = approval.paidApi ? "API có thể phát sinh phí" : "Subscription/free allowance";
+  const data = $("#approval-data");
+  data.replaceChildren();
+  for (const item of approval.dataItems || []) data.append(node("li", "", item));
+  for (const file of approval.files || []) data.append(node("li", "", `File: ${file}`));
+  $("#approval-redactions").textContent = approval.redactions?.length
+    ? `Đã che: ${approval.redactions.join(", ")}`
+    : "Không phát hiện secret trong phần context chuẩn bị gửi.";
+  if (!$("#approval-dialog").open) $("#approval-dialog").showModal();
+}
+
 function startPolling(job) {
   setJob(job);
   clearTimeout(app.pollTimer);
+  if (job.status === "awaiting_approval") {
+    showApproval(job);
+    return;
+  }
+  if (job.approvalMode === "auto" && job.type === "chat") {
+    toast("Project đang tự động cho phép AI phụ trợ; chi tiết usage sẽ được báo sau lượt.");
+  }
   app.pollTimer = setTimeout(pollJob, 600);
 }
 
@@ -347,12 +592,22 @@ async function pollJob() {
     const data = await api(`/api/jobs/${app.activeJobId}`);
     const job = data.job;
     setJob(job);
-    if (["completed", "error", "cancelled"].includes(job.status)) {
+    if (job.status === "awaiting_approval") {
+      showApproval(job);
+      return;
+    }
+    if (["completed", "error", "cancelled", "needs_handoff"].includes(job.status)) {
       clearTimeout(app.pollTimer);
       setJob(null);
       await Promise.all([loadState(), loadStatus()]);
       if (job.status === "completed") {
-        toast(job.type === "login" ? "Đã đổi tài khoản. Chat cũ sẵn sàng tiếp tục." : "Codex đã hoàn tất lượt.");
+        toast(job.type === "login"
+          ? "Đã đổi tài khoản. Chat cũ sẵn sàng tiếp tục."
+          : job.auxiliaryReport
+            ? `${job.auxiliaryReport.providerLabel} đã dùng ${compactNumber(job.auxiliaryReport.usage.totalTokens)} tokens; Codex đã hoàn tất lượt.`
+            : "Codex đã hoàn tất lượt.");
+      } else if (job.status === "needs_handoff") {
+        toast("Tài khoản đã chạm limit. Chọn tài khoản tiếp quản để tiếp tục đúng task.");
       } else {
         toast(job.error || "Tác vụ đã dừng.");
       }
@@ -376,7 +631,8 @@ async function sendMessage() {
         chatId: chat.id,
         message,
         model: $("#model-input").value.trim(),
-        sandbox: $("#sandbox-input").value
+        sandbox: $("#sandbox-input").value,
+        auxiliaryProviderId: $("#auxiliary-provider").value
       })
     });
     await loadState();
@@ -386,31 +642,114 @@ async function sendMessage() {
   }
 }
 
-$("#add-account").addEventListener("click", () => $("#account-dialog").showModal());
+async function continueHandoff() {
+  const chat = activeChat();
+  const accountId = $("#handoff-account").value;
+  if (!chat?.handoff || !accountId || app.activeJobId) return;
+  try {
+    const data = await api(`/api/chats/${chat.id}/handoff/continue`, {
+      method: "POST",
+      body: JSON.stringify({ accountId })
+    });
+    await loadState();
+    startPolling(data.job);
+    toast("Đã bàn giao capsule và tiếp tục task bằng tài khoản mới.");
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function resolveAuxiliaryApproval(mode) {
+  if (!app.activeJobId) return;
+  const dialog = $("#approval-dialog");
+  const approveButton = $("#approve-auxiliary");
+  const denyButton = $("#deny-auxiliary");
+  const autoButton = $("#auto-approve-auxiliary");
+  approveButton.disabled = true;
+  denyButton.disabled = true;
+  autoButton.disabled = true;
+  try {
+    const approved = mode !== "deny";
+    const data = await api(`/api/jobs/${app.activeJobId}/${approved ? "approve" : "deny"}`, {
+      method: "POST",
+      body: JSON.stringify(approved ? { scope: mode === "project" ? "project" : "once" } : {})
+    });
+    dialog.close();
+    startPolling(data.job);
+    toast(mode === "project"
+      ? "Đã bật tự động cho provider này trong project; các lần gọi vẫn được thông báo."
+      : approved ? "Đã cho phép AI phụ trợ trong lượt này." : "Đã từ chối AI phụ; Codex tiếp tục một mình.");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    approveButton.disabled = false;
+    denyButton.disabled = false;
+    autoButton.disabled = false;
+  }
+}
+
+$("#add-account").addEventListener("click", () => openAccountDialog());
 $("#refresh-usage").addEventListener("click", refreshUsage);
 $("#add-project").addEventListener("click", () => $("#project-dialog").showModal());
+$("#add-provider").addEventListener("click", () => openProviderDialog());
 $("#new-chat").addEventListener("click", () => $("#chat-dialog").showModal());
 for (const button of document.querySelectorAll(".dialog-cancel")) {
   button.addEventListener("click", () => button.closest("dialog").close());
 }
 $("#cancel-switch").addEventListener("click", () => $("#switch-dialog").close());
 $("#confirm-switch").addEventListener("click", confirmAccountSwitch);
+$("#continue-handoff").addEventListener("click", continueHandoff);
+$("#approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("once"));
+$("#auto-approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("project"));
+$("#deny-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("deny"));
 
 $("#account-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    await api("/api/accounts", {
-      method: "POST",
+    const editing = app.editAccountId;
+    await api(editing ? `/api/accounts/${editing}` : "/api/accounts", {
+      method: editing ? "PATCH" : "POST",
       body: JSON.stringify({
         label: $("#account-label").value,
         email: $("#account-email").value,
         plan: $("#account-plan").value,
-        remaining: 100
+        expiresAt: $("#account-expires-at").value,
+        note: $("#account-note").value,
+        ...(editing ? {} : { remaining: 100 })
       })
     });
+    app.editAccountId = null;
     event.currentTarget.reset();
     $("#account-dialog").close();
     await loadState();
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#provider-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const editing = app.editProviderId;
+    const apiKey = $("#provider-key").value;
+    await api(editing ? `/api/providers/${editing}` : "/api/providers", {
+      method: editing ? "PATCH" : "POST",
+      body: JSON.stringify({
+        type: $("#provider-type").value,
+        label: $("#provider-label").value,
+        ...(apiKey ? { apiKey } : {}),
+        model: $("#provider-model").value,
+        tokenBudget: Number($("#provider-budget").value),
+        maxOutputTokens: Number($("#provider-max-output").value)
+      })
+    });
+    app.editProviderId = null;
+    event.currentTarget.reset();
+    $("#provider-type").disabled = false;
+    $("#provider-max-output").value = 2048;
+    $("#provider-dialog").close();
+    await loadState();
+    toast("Đã lưu API key mã hóa. Bấm Kiểm tra để xác nhận độ khả dụng.");
   } catch (error) {
     toast(error.message);
   }
@@ -465,7 +804,13 @@ $("#save-context").addEventListener("click", async () => {
       method: "PATCH",
       body: JSON.stringify({
         summary: $("#summary-input").value,
-        nextStep: $("#next-step-input").value
+        nextStep: $("#next-step-input").value,
+        contextConfig: {
+          strategy: $("#context-strategy").value,
+          maxHistoryMessages: Number($("#context-max-messages").value),
+          historyBudget: Number($("#context-budget").value),
+          longChatThreshold: Number($("#long-chat-threshold").value)
+        }
       })
     });
     $("#save-indicator").textContent = "Đã lưu";
@@ -487,6 +832,7 @@ $("#cancel-job").addEventListener("click", async () => {
   if (!app.activeJobId) return;
   try {
     await api(`/api/jobs/${app.activeJobId}/cancel`, { method: "POST", body: "{}" });
+    if ($("#approval-dialog").open) $("#approval-dialog").close();
   } catch (error) {
     toast(error.message);
   }
