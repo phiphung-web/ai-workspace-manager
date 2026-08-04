@@ -28,10 +28,10 @@
 
       <section class="side-section">
         <div class="section-heading">
-          <span>Hồ sơ Codex</span>
+          <span>Tài khoản Codex</span>
           <div class="section-actions">
             <button id="refresh-usage" class="icon-button" type="button" aria-label="Cập nhật hạn mức" title="Cập nhật hạn mức">↻</button>
-            <button id="add-account" class="icon-button" type="button" aria-label="Thêm hồ sơ Codex" title="Thêm hồ sơ Codex">+</button>
+            <button id="add-account" class="icon-button" type="button" aria-label="Thêm tài khoản Codex" title="Thêm tài khoản Codex">+</button>
           </div>
         </div>
         <div id="account-list" class="account-list"></div>
@@ -55,7 +55,7 @@
 
       <div class="privacy-note">
         <span class="lock-icon">●</span>
-        Thông tin đăng nhập Codex được tách riêng theo từng hồ sơ.
+        Thông tin đăng nhập Codex được tách riêng theo từng tài khoản.
       </div>
     </aside>
 
@@ -72,7 +72,7 @@
         <div class="top-actions">
           <div id="active-account-pill" class="active-account-pill">
             <span class="status-dot"></span>
-            <span>Chưa chọn hồ sơ</span>
+            <span>Chưa chọn tài khoản</span>
           </div>
           <button id="new-chat" class="button button-primary" type="button" disabled>+ Tạo cuộc trò chuyện</button>
         </div>
@@ -93,13 +93,13 @@
             <p class="eyebrow">Liên tục giữa các tài khoản</p>
             <h2>Công việc tiếp tục. Tài khoản có thể thay đổi.</h2>
             <p>
-              Quản lý nhiều hồ sơ Codex trong một workspace. Khi một tài khoản chạm hạn mức,
-              hệ thống lưu trạng thái dự án và chuẩn bị ngữ cảnh để hồ sơ tiếp theo tiếp quản.
+              Quản lý nhiều tài khoản Codex trong một workspace. Khi một tài khoản chạm hạn mức,
+              hệ thống lưu trạng thái dự án và chuẩn bị ngữ cảnh để tài khoản tiếp theo tiếp quản.
             </p>
             <div class="steps">
-              <div><b>01 · Kết nối</b><span>Thêm các hồ sơ Codex đang có</span></div>
+              <div><b>01 · Kết nối</b><span>Thêm các tài khoản Codex đang có</span></div>
               <div><b>02 · Làm việc</b><span>Mở thư mục và bắt đầu một luồng</span></div>
-              <div><b>03 · Tiếp quản</b><span>Chuyển hồ sơ, giữ nguyên tiến độ</span></div>
+              <div><b>03 · Tiếp quản</b><span>Chuyển tài khoản, giữ nguyên tiến độ</span></div>
             </div>
           </div>
 
@@ -120,7 +120,7 @@
                 <span id="handoff-reason">Tài khoản hiện tại đã chạm hạn mức.</span>
               </div>
               <div class="handoff-actions">
-                <select id="handoff-account" aria-label="Hồ sơ tiếp quản"></select>
+                <select id="handoff-account" aria-label="Tài khoản tiếp quản"></select>
                 <button id="continue-handoff" class="button button-primary" type="button">Bàn giao và tiếp tục</button>
               </div>
               <small id="handoff-git">Code và trạng thái Git đã được ghi nhận tại thời điểm bàn giao.</small>
@@ -172,7 +172,7 @@
             <span id="save-indicator">Đã lưu</span>
           </div>
           <div id="context-empty" class="context-empty">
-            Chọn một dự án để xem và cập nhật ngữ cảnh dùng chung giữa các hồ sơ Codex.
+            Chọn một dự án để xem và cập nhật ngữ cảnh dùng chung giữa các tài khoản Codex.
           </div>
           <div id="context-form" class="context-form hidden">
             <label>
@@ -181,7 +181,7 @@
             </label>
             <label>
               <span>Hành động tiếp theo</span>
-              <textarea id="next-step-input" rows="6" placeholder="Bước cụ thể mà hồ sơ tiếp theo cần thực hiện…"></textarea>
+              <textarea id="next-step-input" rows="6" placeholder="Bước cụ thể mà tài khoản tiếp theo cần thực hiện…"></textarea>
             </label>
             <details class="context-settings">
               <summary>Cấu hình ngữ cảnh và cuộc trò chuyện dài</summary>
@@ -197,7 +197,7 @@
                 <label><span>Giới hạn ký tự</span><input id="context-budget" type="number" min="8000" max="100000" step="1000" value="48000"></label>
               </div>
               <label><span>Cảnh báo cuộc trò chuyện dài từ</span><input id="long-chat-threshold" type="number" min="40" max="500" value="120"></label>
-              <p>Lịch sử đầy đủ vẫn được lưu cục bộ. Các giới hạn chỉ áp dụng khi tạo gói bàn giao cho hồ sơ mới.</p>
+              <p>Lịch sử đầy đủ vẫn được lưu cục bộ. Các giới hạn chỉ áp dụng khi tạo gói bàn giao cho tài khoản mới.</p>
             </details>
             <button id="save-context" class="button button-secondary" type="button">Lưu bộ nhớ dự án</button>
             <div class="context-tip">
@@ -212,11 +212,11 @@
 
   <dialog id="account-dialog">
     <form id="account-form" method="dialog">
-      <p id="account-dialog-eyebrow" class="eyebrow">Hồ sơ Codex mới</p>
-      <h2 id="account-dialog-title">Kết nối tài khoản Codex</h2>
-      <p class="dialog-copy">Workspace không thu thập mật khẩu. Mỗi hồ sơ sử dụng luồng đăng nhập chính thức và vùng dữ liệu tách biệt.</p>
-      <label>Tên hồ sơ<input id="account-label" required maxlength="80" placeholder="Ví dụ: Codex Plus · Cá nhân"></label>
-      <label>Email<input id="account-email" type="email" maxlength="180" placeholder="ten@email.com"></label>
+      <p id="account-dialog-eyebrow" class="eyebrow">Tài khoản Codex</p>
+      <h2 id="account-dialog-title">Thêm tài khoản</h2>
+      <p class="dialog-copy">Đặt tên để dễ phân biệt. Sau khi lưu, hệ thống sẽ mở luồng đăng nhập Codex chính thức và không lưu mật khẩu của bạn.</p>
+      <label>Tên tài khoản<input id="account-label" required maxlength="80" placeholder="Ví dụ: Codex Plus 01"></label>
+      <label>Email (không bắt buộc)<input id="account-email" type="email" maxlength="180" placeholder="ten@email.com"></label>
       <div class="form-row">
         <label>Gói
           <select id="account-plan">
@@ -227,15 +227,18 @@
           </select>
         </label>
         <div class="auto-limit-note">
-          <strong>Hạn mức tự động</strong>
-          <span>Đồng bộ sau khi đăng nhập</span>
+          <strong>Hạn mức</strong>
+          <span>Tự đồng bộ sau khi đăng nhập</span>
         </div>
       </div>
-      <label>Thời điểm hết hạn<input id="account-expires-at" type="datetime-local"></label>
-      <label>Ghi chú quản lý<textarea id="account-note" rows="3" maxlength="1000" placeholder="Ngày gia hạn, mục đích sử dụng hoặc lưu ý riêng…"></textarea></label>
+      <details class="optional-fields">
+        <summary>Thông tin quản lý <span>Không bắt buộc</span></summary>
+        <label>Thời điểm hết hạn<input id="account-expires-at" type="datetime-local"></label>
+        <label>Ghi chú<textarea id="account-note" rows="3" maxlength="1000" placeholder="Ngày gia hạn hoặc lưu ý riêng…"></textarea></label>
+      </details>
       <div class="dialog-actions">
         <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
-        <button id="save-account" class="button button-primary" type="submit">Tạo hồ sơ</button>
+        <button id="save-account" class="button button-primary" type="submit">Lưu và đăng nhập</button>
       </div>
     </form>
   </dialog>
@@ -294,18 +297,18 @@
 
   <dialog id="switch-dialog">
     <div class="switch-dialog-content">
-      <p class="eyebrow">Chuyển hồ sơ Codex</p>
-      <h2 id="switch-title">Chuyển sang hồ sơ khác?</h2>
+      <p class="eyebrow">Chuyển tài khoản Codex</p>
+      <h2 id="switch-title">Chuyển sang tài khoản khác?</h2>
       <p>
-        Mỗi hồ sơ có một vùng đăng nhập và phiên làm việc riêng. Nếu hồ sơ chưa được
+        Mỗi tài khoản có một vùng đăng nhập và phiên làm việc riêng. Nếu tài khoản chưa được
         xác thực, luồng đăng nhập chính thức sẽ mở để bạn kết nối một lần.
       </p>
       <div class="switch-warning">
-        Các hồ sơ khác vẫn giữ nguyên trạng thái đăng nhập và phiên làm việc.
+        Các tài khoản khác vẫn giữ nguyên trạng thái đăng nhập và phiên làm việc.
       </div>
       <div class="dialog-actions">
         <button id="cancel-switch" class="button button-ghost" type="button">Hủy</button>
-        <button id="confirm-switch" class="button button-primary" type="button">Chọn hồ sơ</button>
+        <button id="confirm-switch" class="button button-primary" type="button">Chọn tài khoản</button>
       </div>
     </div>
   </dialog>

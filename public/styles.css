@@ -784,6 +784,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .context-tip p { margin-top: 7px; font-size: 10px; line-height: 1.6; }
 
 dialog { width: min(500px, calc(100vw - 30px)); border-color: #344050; border-radius: 18px; background: #111720; }
+#account-dialog { width: min(470px, calc(100vw - 30px)); }
 dialog form, .switch-dialog-content { padding: 28px; }
 dialog h2 { margin-bottom: 10px; font-size: 24px; line-height: 1.15; }
 .dialog-copy, .switch-dialog-content > p:not(.eyebrow) { font-size: 12px; line-height: 1.65; }
@@ -793,6 +794,31 @@ dialog textarea { min-height: 82px; padding: 11px; }
 .auto-limit-note { min-height: 43px; padding: 8px 10px; }
 .auto-limit-note strong { font-size: 10px; }
 .auto-limit-note span { font-size: 9px; }
+.optional-fields {
+  margin-top: 16px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
+.optional-fields summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.optional-fields summary::-webkit-details-marker { display: none; }
+.optional-fields summary::before {
+  content: "+";
+  width: 20px;
+  color: var(--lime-2);
+  font-size: 15px;
+}
+.optional-fields[open] summary::before { content: "−"; }
+.optional-fields summary span { margin-left: auto; color: var(--dim); font-size: 9px; font-weight: 500; }
 .dialog-actions { margin-top: 26px; gap: 10px; }
 .switch-warning { padding: 12px; font-size: 11px; line-height: 1.5; }
 .approval-grid > div { padding: 11px; }

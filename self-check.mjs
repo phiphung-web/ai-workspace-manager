@@ -1,7 +1,7 @@
 import os from "node:os";
 import http from "node:http";
 import path from "node:path";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { normalizeAccountMetrics, readCodexAccountMetrics } from "./lib/app-server-client.mjs";
@@ -11,9 +11,18 @@ import { askProvider, probeProvider } from "./lib/ai-provider-client.mjs";
 import { buildAuxiliaryContext } from "./lib/auxiliary-context.mjs";
 import { appendAIUsage, appendHistory, writeCurrentState } from "./lib/project-memory.mjs";
 import { redactSecrets } from "./lib/redaction.mjs";
+import { Store } from "./lib/store.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-manager-check-"));
+
+const corruptStateRoot = path.join(tempRoot, "corrupt-state");
+await mkdir(corruptStateRoot, { recursive: true });
+await writeFile(path.join(corruptStateRoot, "state.json"), "", "utf8");
+const recoveredState = await new Store(corruptStateRoot).read();
+if (!Array.isArray(recoveredState.accounts) || !Array.isArray(recoveredState.projects)) {
+  throw new Error("Store không tự phục hồi state.json rỗng.");
+}
 
 const providerMock = http.createServer((request, response) => {
   response.setHeader("content-type", "application/json");

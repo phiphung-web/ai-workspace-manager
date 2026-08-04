@@ -89,9 +89,9 @@ function expiryMeta(expiresAt) {
 
 function openAccountDialog(account = null) {
   app.editAccountId = account?.id || null;
-  $("#account-dialog-eyebrow").textContent = account ? "Cấu hình hồ sơ Codex" : "Hồ sơ Codex mới";
-  $("#account-dialog-title").textContent = account ? account.label : "Kết nối tài khoản Codex";
-  $("#save-account").textContent = account ? "Lưu thay đổi" : "Tạo hồ sơ";
+  $("#account-dialog-eyebrow").textContent = account ? "Chỉnh sửa tài khoản" : "Tài khoản Codex";
+  $("#account-dialog-title").textContent = account ? account.label : "Thêm tài khoản";
+  $("#save-account").textContent = account ? "Lưu thay đổi" : "Lưu và đăng nhập";
   $("#account-label").value = account?.label || "";
   $("#account-email").value = account?.email || "";
   $("#account-plan").value = account?.plan || "Plus";
@@ -143,7 +143,7 @@ function renderAccounts() {
     const card = node("div", `account-card${account.id === app.state.activeAccountId ? " active" : ""}`);
     card.role = "button";
     card.tabIndex = 0;
-    card.title = account.id === app.state.activeAccountId ? "Hồ sơ đang hoạt động" : "Chuyển sang hồ sơ này";
+    card.title = account.id === app.state.activeAccountId ? "Tài khoản đang hoạt động" : "Chuyển sang tài khoản này";
 
     const top = node("div", "account-top");
     const expiry = expiryMeta(account.expiresAt);
@@ -196,7 +196,7 @@ function renderAccounts() {
   if (!app.state.accounts.length) {
     const empty = node("button", "account-card");
     empty.type = "button";
-    empty.textContent = "＋ Thêm hồ sơ Codex";
+    empty.textContent = "＋ Thêm tài khoản Codex";
     empty.addEventListener("click", () => openAccountDialog());
     list.append(empty);
   }
@@ -357,7 +357,7 @@ function renderTopbar() {
     "",
     account
       ? `${account.label} · ${account.authenticated ? "sẵn sàng" : "chưa kết nối"}`
-      : "Chưa chọn hồ sơ"
+      : "Chưa chọn tài khoản"
   ));
 }
 
@@ -394,7 +394,7 @@ function renderConversation() {
 
   $("#chat-title").textContent = chat.title;
   $("#thread-status").textContent = chat.needsBridge
-    ? "Đang chờ hồ sơ mới tiếp quản"
+    ? "Đang chờ tài khoản mới tiếp quản"
     : chat.threadId
       ? `Phiên Codex · ${chat.threadId.slice(0, 8)}…`
       : "Chưa khởi tạo phiên Codex";
@@ -412,7 +412,7 @@ function renderConversation() {
   banner.classList.toggle("hidden", !handoff);
   if (handoff) {
     const source = app.state.accounts.find((account) => account.id === handoff.sourceAccountId);
-    $("#handoff-reason").textContent = `${source?.label || "Hồ sơ trước"} đã chạm hạn mức. Chọn một hồ sơ khả dụng để tiếp quản đúng công việc này.`;
+    $("#handoff-reason").textContent = `${source?.label || "Tài khoản trước"} đã chạm hạn mức. Chọn một tài khoản khả dụng để tiếp quản đúng công việc này.`;
     const select = $("#handoff-account");
     select.replaceChildren();
     const candidates = app.state.accounts.filter((account) =>
@@ -430,7 +430,7 @@ function renderConversation() {
     const repo = handoff.capsule?.repoState;
     $("#handoff-git").textContent = repo?.available
       ? `Git snapshot · ${repo.branch} · ${repo.commit.slice(0, 8)} · ${repo.workingTree === "clean" ? "working tree sạch" : "có thay đổi chưa commit"}.`
-      : "Chưa đọc được Git snapshot; hồ sơ mới sẽ kiểm tra lại thư mục trước khi tiếp tục.";
+      : "Chưa đọc được Git snapshot; tài khoản mới sẽ kiểm tra lại thư mục trước khi tiếp tục.";
   }
 
   const messages = $("#messages");
@@ -484,14 +484,14 @@ async function loadStatus() {
 
 function requestAccountSwitch(account) {
   if (account.id === app.state.activeAccountId && account.authenticated) {
-    toast(`${account.label} đang là hồ sơ hoạt động.`);
+    toast(`${account.label} đang là tài khoản hoạt động.`);
     return;
   }
   app.switchAccountId = account.id;
   $("#switch-title").textContent = account.authenticated
     ? `Chuyển sang ${account.label}?`
     : `Kết nối ${account.label}?`;
-  $("#confirm-switch").textContent = account.authenticated ? "Chuyển hồ sơ" : "Mở luồng đăng nhập";
+  $("#confirm-switch").textContent = account.authenticated ? "Chuyển tài khoản" : "Mở luồng đăng nhập";
   $("#switch-dialog").showModal();
 }
 
@@ -505,7 +505,7 @@ async function confirmAccountSwitch() {
     });
     startPolling(data.job);
     toast(data.job.status === "completed"
-      ? "Đã chuyển sang hồ sơ Codex đã kết nối."
+      ? "Đã chuyển sang tài khoản Codex đã kết nối."
       : "Đang mở luồng đăng nhập Codex chính thức…");
   } catch (error) {
     toast(error.message);
@@ -513,9 +513,17 @@ async function confirmAccountSwitch() {
 }
 
 async function refreshUsage() {
+  if (!app.state) {
+    try {
+      await loadState();
+    } catch (error) {
+      toast(`Chưa tải được dữ liệu: ${error.message}`);
+      return;
+    }
+  }
   const accounts = app.state.accounts.filter((account) => account.authenticated);
   if (!accounts.length) {
-    toast("Chưa có hồ sơ Codex nào được kết nối.");
+    toast("Chưa có tài khoản Codex nào được kết nối.");
     return;
   }
   const button = $("#refresh-usage");
@@ -533,8 +541,8 @@ async function refreshUsage() {
   button.disabled = false;
   button.textContent = "↻";
   toast(failures
-    ? `Đã cập nhật hạn mức cho ${accounts.length - failures}/${accounts.length} hồ sơ.`
-    : "Đã cập nhật hạn mức cho tất cả hồ sơ Codex.");
+    ? `Đã cập nhật hạn mức cho ${accounts.length - failures}/${accounts.length} tài khoản.`
+    : "Đã cập nhật hạn mức cho tất cả tài khoản Codex.");
 }
 
 function setJob(job) {
@@ -546,7 +554,7 @@ function setJob(job) {
   if (running) {
     $("#job-label").textContent = job.status === "awaiting_approval"
       ? "Đang chờ xác nhận AI phụ trợ…"
-      : job.type === "login" ? "Đang chuyển hồ sơ Codex…" : "Codex đang xử lý…";
+      : job.type === "login" ? "Đang chuyển tài khoản Codex…" : "Codex đang xử lý…";
     const lastEvent = job.events.at(-1);
     $("#job-event").textContent = lastEvent?.message || "Đang khởi tạo phiên";
   }
@@ -602,12 +610,12 @@ async function pollJob() {
       await Promise.all([loadState(), loadStatus()]);
       if (job.status === "completed") {
         toast(job.type === "login"
-          ? "Đã chuyển hồ sơ. Cuộc trò chuyện hiện tại sẵn sàng tiếp tục."
+          ? "Đã chuyển tài khoản. Cuộc trò chuyện hiện tại sẵn sàng tiếp tục."
           : job.auxiliaryReport
             ? `${job.auxiliaryReport.providerLabel} đã dùng ${compactNumber(job.auxiliaryReport.usage.totalTokens)} token; Codex đã hoàn tất yêu cầu.`
             : "Codex đã hoàn tất yêu cầu.");
       } else if (job.status === "needs_handoff") {
-        toast("Tài khoản đã chạm hạn mức. Chọn hồ sơ tiếp quản để tiếp tục công việc.");
+        toast("Tài khoản đã chạm hạn mức. Chọn tài khoản tiếp quản để tiếp tục công việc.");
       } else {
         toast(job.error || "Tác vụ đã dừng.");
       }
@@ -653,7 +661,7 @@ async function continueHandoff() {
     });
     await loadState();
     startPolling(data.job);
-    toast("Đã chuyển gói bàn giao và tiếp tục công việc bằng hồ sơ mới.");
+    toast("Đã chuyển gói bàn giao và tiếp tục công việc bằng tài khoản mới.");
   } catch (error) {
     toast(error.message);
   }
@@ -707,7 +715,7 @@ $("#account-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     const editing = app.editAccountId;
-    await api(editing ? `/api/accounts/${editing}` : "/api/accounts", {
+    const result = await api(editing ? `/api/accounts/${editing}` : "/api/accounts", {
       method: editing ? "PATCH" : "POST",
       body: JSON.stringify({
         label: $("#account-label").value,
@@ -722,6 +730,16 @@ $("#account-form").addEventListener("submit", async (event) => {
     event.currentTarget.reset();
     $("#account-dialog").close();
     await loadState();
+    if (!editing && result.account?.id) {
+      const login = await api(`/api/accounts/${result.account.id}/login`, {
+        method: "POST",
+        body: "{}"
+      });
+      startPolling(login.job);
+      toast(login.job.status === "completed"
+        ? "Tài khoản đã sẵn sàng sử dụng."
+        : "Đã lưu tài khoản. Đang mở đăng nhập Codex…");
+    }
   } catch (error) {
     toast(error.message);
   }
