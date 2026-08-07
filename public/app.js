@@ -6,7 +6,13 @@ const app = {
   editAccountId: null,
   editProviderId: null,
   pollTimer: null,
-  toastTimer: null
+  toastTimer: null,
+  usageRefreshTimer: null,
+  usageRefreshing: false,
+  lastUsageRefreshAt: 0,
+  folderPath: "",
+  folderParentPath: null,
+  shownSubscriptionTaskId: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -70,8 +76,8 @@ function quotaWindow(label, window) {
   const remaining = Number.isFinite(Number(window.remainingPercent))
     ? Math.max(0, Math.min(100, Number(window.remainingPercent)))
     : null;
-  const title = node("span", "", `${label} · ${formatDuration(window.windowDurationMins)}`);
-  const value = node("strong", "", remaining === null ? "—" : `${Math.round(remaining)}%`);
+  const title = node("span", "", `${label} ${formatDuration(window.windowDurationMins)}`);
+  const value = node("strong", "", remaining === null ? "—" : `${Math.round(remaining)}% còn`);
   const reset = node("small", "", window.resetsAtIso ? `đặt lại ${formatReset(window.resetsAtIso)}` : "chưa có thời điểm đặt lại");
   row.append(title, value, reset);
   return row;
@@ -95,7 +101,6 @@ function openAccountDialog(account = null) {
   $("#delete-account").classList.toggle("hidden", !account);
   $("#account-label").value = account?.label || "";
   $("#account-email").value = account?.email || "";
-  $("#account-plan").value = account?.plan || "Plus";
   $("#account-expires-at").value = account?.expiresAt || "";
   $("#account-note").value = account?.note || "";
   $("#account-dialog").showModal();
@@ -104,9 +109,9 @@ function openAccountDialog(account = null) {
 function openProviderDialog(provider = null) {
   app.editProviderId = provider?.id || null;
   $("#provider-dialog-eyebrow").textContent = provider ? "Cấu hình trợ lý" : "Trợ lý chuyên biệt";
-  $("#provider-dialog-title").textContent = provider ? provider.label : "Kết nối AI phụ trợ";
+  $("#provider-dialog-title").textContent = provider ? provider.label : "Kết nối API nâng cao";
   $("#save-provider").textContent = provider ? "Lưu thay đổi" : "Lưu cấu hình";
-  $("#provider-type").value = provider?.type || "anthropic";
+  $("#provider-type").value = provider?.type || "openai";
   $("#provider-type").disabled = Boolean(provider);
   $("#provider-label").value = provider?.label || "";
   $("#provider-key").value = "";
@@ -146,48 +151,29 @@ function renderAccounts() {
     card.tabIndex = 0;
     card.title = account.id === app.state.activeAccountId ? "Tài khoản đang hoạt động" : "Chuyển sang tài khoản này";
 
-    const top = node("div", "account-top");
     const expiry = expiryMeta(account.expiresAt);
     const exhausted = Number(account.remaining) <= 0 || Boolean(account.rateLimits?.rateLimitReachedType) || expiry?.expired;
     const dot = node("span", `status-dot ${account.status === "available" && !exhausted ? "online" : "warning"}`);
-    const title = node("strong", "", account.label);
-    const plan = node("span", "plan-badge", account.plan);
+    const main = node("div", "account-main");
+    const loginState = account.authenticated ? "đã kết nối" : "chưa kết nối";
+    const resetText = account.resetAt ? ` · lại ${formatReset(account.resetAt)}` : "";
+    main.append(
+      node("strong", "", account.label),
+      node("small", "", `${account.plan} · ${loginState}${resetText}`)
+    );
+    const quota = node("span", "account-quota", `${Math.round(account.remaining)}%`);
     const edit = node("button", "account-edit", "✎");
     edit.type = "button";
-    edit.title = "Chỉnh sửa hồ sơ";
+    edit.title = "Chỉnh sửa tài khoản";
     edit.addEventListener("click", (event) => {
       event.stopPropagation();
       openAccountDialog(account);
     });
-    top.append(dot, title, plan, edit);
-
-    const loginState = account.authenticated ? "đã kết nối" : "chưa kết nối";
-    const email = node("small", "", `${account.email || "Chưa có email"} · ${loginState}`);
-    const usage = node("div", "usage-row");
-    const bar = node("span", "usage-bar");
-    const fill = node("i");
-    fill.style.width = `${account.remaining}%`;
-    bar.append(fill);
-    usage.append(bar, node("span", "", `${Math.round(account.remaining)}%`));
-    const syncText = account.syncError
-      ? "Không đọc được hạn mức · bấm ↻ để thử lại"
-      : account.remainingSource === "automatic"
-        ? `Đồng bộ tự động${account.resetAt ? ` · đặt lại ${formatReset(account.resetAt)}` : ""}`
-        : account.authenticated
-          ? "Đang chờ dữ liệu hạn mức"
-          : "Kết nối để đồng bộ hạn mức";
-    const syncMeta = node("small", `sync-meta${account.syncError ? " error" : ""}`, syncText);
-    card.append(top, email, usage, syncMeta);
-    if (expiry) card.append(node("small", `account-expiry${expiry.expired ? " expired" : ""}`, expiry.text));
-    if (account.note) card.append(node("small", "account-note", account.note));
-    const primary = quotaWindow("Cửa sổ ngắn", account.rateLimits?.primary);
-    const secondary = quotaWindow("Cửa sổ dài", account.rateLimits?.secondary);
-    if (primary || secondary) {
-      const windows = node("div", "quota-windows");
-      if (primary) windows.append(primary);
-      if (secondary) windows.append(secondary);
-      card.append(windows);
-    }
+    const syncState = account.syncError
+      ? "Không đọc được hạn mức"
+      : account.lastSyncedAt ? `Cập nhật ${formatTime(account.lastSyncedAt)}` : "Chưa đồng bộ hạn mức";
+    card.title = [account.email, syncState, expiry?.text, account.note].filter(Boolean).join(" · ");
+    card.append(dot, main, quota, edit);
     card.addEventListener("click", () => requestAccountSwitch(account));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") requestAccountSwitch(account);
@@ -206,36 +192,144 @@ function renderAccounts() {
 function renderProjects() {
   const list = $("#project-list");
   list.replaceChildren();
+  $("#project-count").textContent = String(app.state.projects.length);
   for (const project of app.state.projects) {
-    const button = node("button", `project-item${project.id === app.state.activeProjectId ? " active" : ""}`);
+    const button = node("button", `project-item${project.kind === "general" ? " general-project" : ""}${project.id === app.state.activeProjectId ? " active" : ""}`);
     button.type = "button";
-    button.append(node("strong", "", project.name), node("span", "", project.path));
+    button.append(
+      node("strong", "", project.name),
+      node("span", "", project.kind === "general" ? "Chat không gắn thư mục dự án" : project.path)
+    );
     button.addEventListener("click", async () => {
       try {
         await api(`/api/projects/${project.id}/select`, { method: "POST", body: "{}" });
         app.activeChatId = null;
         await loadState();
+        document.body.classList.remove("sidebar-open");
       } catch (error) {
         toast(error.message);
       }
     });
     list.append(button);
   }
-  if (!app.state.projects.length) {
+  if (!app.state.projects.some((project) => project.kind !== "general")) {
     const empty = node("button", "project-item");
     empty.type = "button";
-    empty.textContent = "＋ Kết nối thư mục dự án";
+    empty.textContent = "＋ Thêm thư mục dự án";
     empty.addEventListener("click", () => $("#project-dialog").showModal());
     list.append(empty);
   }
 }
 
+async function loadFolder(path = "") {
+  const list = $("#folder-list");
+  const errorElement = $("#folder-error");
+  list.replaceChildren(node("div", "folder-loading", "Đang đọc thư mục…"));
+  errorElement.classList.add("hidden");
+  try {
+    const result = await api("/api/folders/list", { method: "POST", body: JSON.stringify({ path }) });
+    app.folderPath = result.currentPath;
+    app.folderParentPath = result.parentPath;
+    $("#folder-current-path").textContent = result.currentPath;
+    $("#folder-up").disabled = !result.parentPath;
+    list.replaceChildren();
+    for (const directory of result.directories) {
+      const button = node("button", "folder-item");
+      button.type = "button";
+      button.append(node("span", "folder-icon", "▰"), node("span", "", directory.name));
+      button.addEventListener("click", () => loadFolder(directory.path));
+      list.append(button);
+    }
+    if (!result.directories.length) list.append(node("div", "folder-empty", "Thư mục này không có thư mục con."));
+  } catch (error) {
+    list.replaceChildren();
+    errorElement.textContent = `Không đọc được thư mục: ${error.message}`;
+    errorElement.classList.remove("hidden");
+  }
+}
+
+function browseProjectPath() {
+  $("#folder-dialog").showModal();
+  loadFolder($("#project-path").value.trim());
+}
+
+function confirmProjectFolder() {
+  if (!app.folderPath) return;
+  $("#project-path").value = app.folderPath;
+  if (!$("#project-name").value.trim()) {
+    $("#project-name").value = app.folderPath.split(/[\\/]/).filter(Boolean).at(-1) || "Dự án mới";
+  }
+  $("#folder-dialog").close();
+}
+
+function applyProjectPath(selectedPath) {
+  $("#project-path").value = selectedPath;
+  if (!$("#project-name").value.trim()) {
+    $("#project-name").value = selectedPath.split(/[\\/]/).filter(Boolean).at(-1) || "Dự án mới";
+  }
+}
+
+async function browseProjectPathNative() {
+  const button = $("#browse-project-path");
+  button.disabled = true;
+  button.textContent = "Đang chờ Windows…";
+  try {
+    const result = await api("/api/folders/pick", { method: "POST", body: "{}" });
+    if (result.path) applyProjectPath(result.path);
+  } catch (error) {
+    toast(`Windows không mở được hộp chọn thư mục. Đang chuyển sang trình duyệt trong ứng dụng.`);
+    browseProjectPath();
+  } finally {
+    button.disabled = false;
+    button.textContent = "Chọn thư mục";
+  }
+}
+
+function updatePlanningModeUi() {
+  const mode = $("#planning-mode").value;
+  $("#api-planning-options").classList.toggle("hidden", mode !== "api");
+  $("#planning-mode-help").textContent = mode === "subscription"
+    ? "ChatGPT Plus lập kế hoạch qua MCP; Gemini CLI sẽ review nền bằng đăng nhập Google khi đã cài. Không cần API key."
+    : mode === "none"
+      ? "Bỏ qua bước lập kế hoạch phụ trợ và gửi yêu cầu thẳng cho Codex."
+      : "Chỉ dùng khi bạn chủ động cấu hình API key riêng; nhà cung cấp có thể tính phí API.";
+}
+
+async function savePlanningWorkflow() {
+  const project = activeProject();
+  if (!project) return;
+  const planningWorkflow = {
+    mode: $("#planning-mode").value,
+    plannerProviderId: $("#planner-provider").value,
+    reviewerProviderId: $("#reviewer-provider").value
+  };
+  await api(`/api/projects/${project.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ planningWorkflow })
+  });
+  const stateProject = app.state.projects.find((item) => item.id === project.id);
+  if (stateProject) {
+    stateProject.planningWorkflow = {
+      mode: planningWorkflow.mode,
+      plannerProviderId: planningWorkflow.plannerProviderId || null,
+      reviewerProviderId: planningWorkflow.reviewerProviderId || null
+    };
+  }
+}
+
 function renderProviders() {
   const list = $("#provider-list");
-  const selector = $("#auxiliary-provider");
-  const selected = selector.value;
+  const plannerSelector = $("#planner-provider");
+  const reviewerSelector = $("#reviewer-provider");
+  const project = activeProject();
+  const selectedMode = project?.planningWorkflow?.mode || "subscription";
+  const selectedPlanner = project?.planningWorkflow?.plannerProviderId || "";
+  const selectedReviewer = project?.planningWorkflow?.reviewerProviderId || "";
   list.replaceChildren();
-  selector.replaceChildren(new Option("Không dùng", ""));
+  $("#planning-mode").value = selectedMode;
+  updatePlanningModeUi();
+  plannerSelector.replaceChildren(new Option("Không lập kế hoạch", ""));
+  reviewerSelector.replaceChildren(new Option("Không review", ""));
   for (const provider of app.state.providers || []) {
     const used = Number(provider.usage?.totalTokens || 0);
     const budget = Number(provider.tokenBudget || 0);
@@ -243,7 +337,6 @@ function renderProviders() {
     const percent = budget > 0 ? Math.max(0, Math.min(100, remaining / budget * 100)) : null;
     const budgetExhausted = budget > 0 && remaining <= 0;
     const budgetLow = budget > 0 && percent <= 20;
-    const project = activeProject();
     const autoApproved = Boolean(project?.auxiliaryPolicy?.autoApprovedProviderIds?.includes(provider.id));
     const card = node("div", "provider-card");
     const top = node("div", "provider-top");
@@ -253,7 +346,7 @@ function renderProviders() {
     top.append(
       node("span", `status-dot ${dotClass}`),
       node("strong", "", provider.label),
-      node("span", "plan-badge", provider.type === "anthropic" ? "CLAUDE" : "OPENAI")
+      node("span", "plan-badge", provider.type === "anthropic" ? "CLAUDE" : provider.type === "google" ? "GEMINI" : "OPENAI")
     );
     const modelState = provider.selectedModelAvailable === false ? " · mô hình không khả dụng với key này" : "";
     card.append(top, node("small", "", `${provider.model || "Chưa chọn mô hình"}${modelState}${autoApproved ? " · TỰ ĐỘNG TRONG DỰ ÁN" : ""}`));
@@ -313,12 +406,14 @@ function renderProviders() {
 
     if (provider.enabled && provider.keyConfigured && !budgetExhausted) {
       const option = new Option(`${provider.label} · ${provider.model || "chưa chọn mô hình"}`, provider.id);
-      selector.append(option);
+      if (provider.type === "openai") plannerSelector.append(option);
+      if (provider.type === "google") reviewerSelector.append(option);
     }
   }
-  selector.value = [...selector.options].some((option) => option.value === selected) ? selected : "";
+  plannerSelector.value = [...plannerSelector.options].some((option) => option.value === selectedPlanner) ? selectedPlanner : "";
+  reviewerSelector.value = [...reviewerSelector.options].some((option) => option.value === selectedReviewer) ? selectedReviewer : "";
   if (!(app.state.providers || []).length) {
-    const empty = node("small", "sync-meta", "Chưa kết nối AI phụ trợ.");
+    const empty = node("small", "sync-meta", "Chưa cấu hình API (không bắt buộc).");
     list.append(empty);
   }
 }
@@ -330,7 +425,7 @@ function renderChats() {
     : [];
   const list = $("#chat-list");
   list.replaceChildren();
-  $("#chat-count").textContent = `${chats.length} cuộc trò chuyện`;
+  $("#chat-count").textContent = String(chats.length);
   for (const chat of chats) {
     const button = node("button", `chat-item${chat.id === app.activeChatId ? " active" : ""}`);
     button.type = "button";
@@ -340,15 +435,21 @@ function renderChats() {
     button.addEventListener("click", () => {
       app.activeChatId = chat.id;
       render();
+      document.body.classList.remove("sidebar-open");
     });
     list.append(button);
   }
+  if (!chats.length) list.append(node("div", "sidebar-empty", "Chưa có đoạn chat"));
 }
 
 function renderTopbar() {
   const project = activeProject();
   const account = activeAccount();
-  $("#project-title").textContent = project?.name || "Chọn dự án để bắt đầu";
+  $("#project-title").textContent = project?.name || "Trò chuyện chung";
+  $("#project-path-label").textContent = project?.kind === "general"
+    ? "Không gắn thư mục dự án"
+    : project?.path || "Chưa chọn thư mục";
+  $("#empty-project-label").textContent = project?.kind === "general" ? "Trò chuyện chung" : project?.name || "Chọn dự án";
   $("#new-chat").disabled = !project;
   const pill = $("#active-account-pill");
   pill.replaceChildren();
@@ -357,7 +458,7 @@ function renderTopbar() {
     "span",
     "",
     account
-      ? `${account.label} · ${account.authenticated ? "sẵn sàng" : "chưa kết nối"}`
+      ? `${account.label} · ${Math.round(account.remaining)}%`
       : "Chưa chọn tài khoản"
   ));
 }
@@ -394,13 +495,14 @@ function renderConversation() {
   if (!chat) return;
 
   $("#chat-title").textContent = chat.title;
+  const chatAccount = app.state.accounts.find((account) => account.id === chat.accountId);
   $("#thread-status").textContent = chat.needsBridge
-    ? "Đang chờ tài khoản mới tiếp quản"
+    ? "Đang chờ chuyển tài khoản"
     : chat.threadId
-      ? `Phiên Codex · ${chat.threadId.slice(0, 8)}…`
-      : "Chưa khởi tạo phiên Codex";
+      ? `${chatAccount?.label || "Codex"} · đang hoạt động`
+      : "Sẵn sàng bắt đầu";
   const totalTokens = chat.usage.inputTokens + chat.usage.outputTokens;
-  $("#usage-status").textContent = `${compactNumber(totalTokens)} token đã dùng`;
+  $("#usage-status").textContent = totalTokens > 0 ? `${compactNumber(totalTokens)} token đã dùng` : "Tự động lưu tiến độ";
   const longThreshold = activeProject()?.contextConfig?.longChatThreshold || 120;
   $("#bridge-note").textContent = chat.needsBridge
     ? "Lượt tiếp theo sử dụng gói bàn giao đã tối ưu"
@@ -536,49 +638,100 @@ async function deleteAccount() {
   }
 }
 
-async function refreshUsage() {
+async function refreshUsage({ silent = false } = {}) {
+  if (app.usageRefreshing || app.activeJobId) return;
+  app.usageRefreshing = true;
+  const button = $("#refresh-usage");
+  if (!silent) {
+    button.disabled = true;
+    button.textContent = "…";
+  }
   if (!app.state) {
     try {
       await loadState();
     } catch (error) {
-      toast(`Chưa tải được dữ liệu: ${error.message}`);
+      if (!silent) toast(`Chưa tải được dữ liệu: ${error.message}`);
+      app.usageRefreshing = false;
+      if (!silent) {
+        button.disabled = false;
+        button.textContent = "↻";
+      }
       return;
     }
   }
   const accounts = app.state.accounts.filter((account) => account.authenticated);
   if (!accounts.length) {
-    toast("Chưa có tài khoản Codex nào được kết nối.");
+    if (!silent) toast("Chưa có tài khoản Codex nào được kết nối.");
+    app.usageRefreshing = false;
+    if (!silent) {
+      button.disabled = false;
+      button.textContent = "↻";
+    }
     return;
   }
-  const button = $("#refresh-usage");
-  button.disabled = true;
-  button.textContent = "…";
   let failures = 0;
-  for (const account of accounts) {
-    try {
-      await api(`/api/accounts/${account.id}/refresh`, { method: "POST", body: "{}" });
-    } catch {
-      failures += 1;
+  try {
+    for (const account of accounts) {
+      try {
+        await api(`/api/accounts/${account.id}/refresh`, { method: "POST", body: "{}" });
+      } catch {
+        failures += 1;
+      }
+    }
+    await loadState();
+    app.lastUsageRefreshAt = Date.now();
+    if (!silent) {
+      toast(failures
+        ? `Đã cập nhật hạn mức cho ${accounts.length - failures}/${accounts.length} tài khoản.`
+        : "Đã cập nhật hạn mức cho tất cả tài khoản Codex.");
+    }
+  } finally {
+    app.usageRefreshing = false;
+    if (!silent) {
+      button.disabled = false;
+      button.textContent = "↻";
     }
   }
-  await loadState();
-  button.disabled = false;
-  button.textContent = "↻";
-  toast(failures
-    ? `Đã cập nhật hạn mức cho ${accounts.length - failures}/${accounts.length} tài khoản.`
-    : "Đã cập nhật hạn mức cho tất cả tài khoản Codex.");
+}
+
+function startUsageAutoRefresh() {
+  clearInterval(app.usageRefreshTimer);
+  app.usageRefreshTimer = setInterval(() => {
+    if (document.visibilityState === "visible") refreshUsage({ silent: true });
+  }, 120000);
+  setTimeout(() => refreshUsage({ silent: true }), 1500);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - app.lastUsageRefreshAt > 60000) {
+      refreshUsage({ silent: true });
+    }
+  });
+}
+
+function toggleContextPanel() {
+  const grid = $("#workspace-grid");
+  const button = $("#toggle-context");
+  const opening = grid.classList.contains("context-collapsed");
+  grid.classList.toggle("context-collapsed", !opening);
+  button.setAttribute("aria-expanded", String(opening));
+  button.textContent = opening ? "Đóng bộ nhớ" : "Bộ nhớ";
 }
 
 function setJob(job) {
   app.activeJobId = job?.id || null;
-  const running = job && ["queued", "running", "awaiting_approval"].includes(job.status);
+  const running = job && ["queued", "running", "awaiting_approval", "awaiting_gpt", "awaiting_gemini", "reviewing_gemini", "ready_for_codex"].includes(job.status);
   $("#job-strip").classList.toggle("hidden", !running);
   $("#send-message").disabled = Boolean(running);
   $("#message-input").disabled = Boolean(running);
   if (running) {
-    $("#job-label").textContent = job.status === "awaiting_approval"
-      ? "Đang chờ xác nhận AI phụ trợ…"
-      : job.type === "login" ? "Đang chuyển tài khoản Codex…" : "Codex đang xử lý…";
+    const labels = {
+      awaiting_approval: "Đang chờ xác nhận API nâng cao…",
+      awaiting_gpt: "Đang chờ ChatGPT Plus lập kế hoạch…",
+      awaiting_gemini: "Đang chờ Gemini Pro review…",
+      reviewing_gemini: "Gemini CLI đang review nền…",
+      ready_for_codex: "Đang chuyển kế hoạch cuối sang Codex…"
+    };
+    $("#job-label").textContent = labels[job.status]
+      || (job.type === "login" ? "Đang chuyển tài khoản Codex…" : "Codex đang xử lý…");
     const lastEvent = job.events.at(-1);
     $("#job-event").textContent = lastEvent?.message || "Đang khởi tạo phiên";
   }
@@ -587,9 +740,11 @@ function setJob(job) {
 function showApproval(job) {
   const approval = job.approval;
   if (!approval) return;
-  $("#approval-title").textContent = `Codex đề xuất dùng ${approval.providerLabel}`;
+  $("#approval-title").textContent = "GPT lập kế hoạch → Gemini review → Codex thực hiện";
   $("#approval-reason").textContent = approval.reason;
-  $("#approval-provider").textContent = `${approval.providerType} / ${approval.model}`;
+  $("#approval-provider").textContent = (approval.providers || [])
+    .map((provider) => `${provider.role === "planner" ? "GPT" : "Gemini"}: ${provider.label} / ${provider.model}`)
+    .join(" · ") || `${approval.providerType} / ${approval.model}`;
   $("#approval-tokens").textContent = `~${compactNumber(approval.estimatedMaximumTokens)} token`;
   $("#approval-remaining").textContent = approval.remainingTokens === null
     ? "Chưa đặt ngân sách"
@@ -597,6 +752,10 @@ function showApproval(job) {
   $("#approval-cost").textContent = approval.paidApi ? "API có thể phát sinh phí" : "Trong hạn mức gói/free";
   const data = $("#approval-data");
   data.replaceChildren();
+  for (const provider of approval.providers || []) {
+    const remaining = provider.remainingTokens === null ? "chưa đặt ngân sách" : `còn ${compactNumber(provider.remainingTokens)} token`;
+    data.append(node("li", "", `${provider.role === "planner" ? "GPT lập kế hoạch" : "Gemini review"}: ${provider.label} · ${remaining}`));
+  }
   for (const item of approval.dataItems || []) data.append(node("li", "", item));
   for (const file of approval.files || []) data.append(node("li", "", `Tệp: ${file}`));
   $("#approval-redactions").textContent = approval.redactions?.length
@@ -608,12 +767,16 @@ function showApproval(job) {
 function startPolling(job) {
   setJob(job);
   clearTimeout(app.pollTimer);
+  if (job.type === "subscription-planning" && job.subscriptionTask?.id && app.shownSubscriptionTaskId !== job.subscriptionTask.id) {
+    app.shownSubscriptionTaskId = job.subscriptionTask.id;
+    if (!$("#subscription-dialog").open) $("#subscription-dialog").showModal();
+  }
   if (job.status === "awaiting_approval") {
     showApproval(job);
     return;
   }
   if (job.approvalMode === "auto" && job.type === "chat") {
-    toast("Dự án đang cho phép tự động AI phụ trợ; mức sử dụng sẽ được báo sau lượt này.");
+    toast("Dự án đang tự động cho phép GPT lập kế hoạch và Gemini review; mức sử dụng vẫn được báo sau lượt này.");
   }
   app.pollTimer = setTimeout(pollJob, 600);
 }
@@ -628,7 +791,7 @@ async function pollJob() {
       showApproval(job);
       return;
     }
-    if (["completed", "error", "cancelled", "needs_handoff"].includes(job.status)) {
+    if (["completed", "error", "failed", "cancelled", "needs_handoff"].includes(job.status)) {
       clearTimeout(app.pollTimer);
       setJob(null);
       await Promise.all([loadState(), loadStatus()]);
@@ -636,7 +799,7 @@ async function pollJob() {
         toast(job.type === "login"
           ? "Đã chuyển tài khoản. Cuộc trò chuyện hiện tại sẵn sàng tiếp tục."
           : job.auxiliaryReport
-            ? `${job.auxiliaryReport.providerLabel} đã dùng ${compactNumber(job.auxiliaryReport.usage.totalTokens)} token; Codex đã hoàn tất yêu cầu.`
+            ? `${job.auxiliaryReport.providerLabel} đã dùng ${compactNumber(job.auxiliaryReport.usage.totalTokens)} token để lập và review kế hoạch; Codex đã hoàn tất yêu cầu.`
             : "Codex đã hoàn tất yêu cầu.");
       } else if (job.status === "needs_handoff") {
         toast("Tài khoản đã chạm hạn mức. Chọn tài khoản tiếp quản để tiếp tục công việc.");
@@ -655,6 +818,13 @@ async function sendMessage() {
   const chat = activeChat();
   const message = $("#message-input").value.trim();
   if (!chat || !message || app.activeJobId) return;
+  const planningMode = $("#planning-mode").value;
+  const plannerProviderId = planningMode === "api" ? $("#planner-provider").value : "";
+  const reviewerProviderId = planningMode === "api" ? $("#reviewer-provider").value : "";
+  if (planningMode === "api" && Boolean(plannerProviderId) !== Boolean(reviewerProviderId)) {
+    toast("Hãy chọn cả GPT Planner và Gemini Reviewer, hoặc tắt cả hai.");
+    return;
+  }
   $("#message-input").value = "";
   try {
     const data = await api("/api/chat", {
@@ -664,13 +834,59 @@ async function sendMessage() {
         message,
         model: $("#model-input").value.trim(),
         sandbox: $("#sandbox-input").value,
-        auxiliaryProviderId: $("#auxiliary-provider").value
+        planningMode,
+        plannerProviderId,
+        reviewerProviderId
       })
     });
     await loadState();
     startPolling(data.job);
   } catch (error) {
     toast(error.message);
+  }
+}
+
+function startNewConversation() {
+  if (!activeProject()) {
+    $("#project-dialog").showModal();
+    return;
+  }
+  app.activeChatId = null;
+  render();
+  document.body.classList.remove("sidebar-open");
+  requestAnimationFrame(() => $("#empty-message-input").focus());
+}
+
+async function startChatFromPrompt() {
+  const project = activeProject();
+  const input = $("#empty-message-input");
+  const message = input.value.trim();
+  if (!project) {
+    $("#project-dialog").showModal();
+    return;
+  }
+  if (!message || app.activeJobId) return;
+
+  const button = $("#empty-send-message");
+  button.disabled = true;
+  try {
+    const normalizedTitle = message.replace(/\s+/g, " ");
+    const data = await api("/api/chats", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: project.id,
+        title: normalizedTitle.length > 72 ? `${normalizedTitle.slice(0, 69)}…` : normalizedTitle
+      })
+    });
+    app.activeChatId = data.chat.id;
+    input.value = "";
+    await loadState();
+    $("#message-input").value = message;
+    await sendMessage();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -709,8 +925,8 @@ async function resolveAuxiliaryApproval(mode) {
     dialog.close();
     startPolling(data.job);
     toast(mode === "project"
-      ? "Đã cho phép tự động trợ lý này trong dự án; mỗi lần sử dụng vẫn được thông báo."
-      : approved ? "Đã cho phép AI phụ trợ trong lượt này." : "Đã từ chối AI phụ trợ; Codex sẽ tự tiếp tục.");
+      ? "Đã tự động cho phép GPT Planner và Gemini Reviewer trong dự án; mỗi lần sử dụng vẫn được thông báo."
+      : approved ? "Đã cho phép workflow lập kế hoạch trong lượt này." : "Đã bỏ qua GPT/Gemini; Codex sẽ tự tiếp tục.");
   } catch (error) {
     toast(error.message);
   } finally {
@@ -721,10 +937,41 @@ async function resolveAuxiliaryApproval(mode) {
 }
 
 $("#add-account").addEventListener("click", () => openAccountDialog());
-$("#refresh-usage").addEventListener("click", refreshUsage);
+$("#refresh-usage").addEventListener("click", () => refreshUsage());
 $("#add-project").addEventListener("click", () => $("#project-dialog").showModal());
+$("#browse-project-path").addEventListener("click", browseProjectPathNative);
+$("#browse-project-path-fallback").addEventListener("click", browseProjectPath);
+$("#folder-up").addEventListener("click", () => app.folderParentPath && loadFolder(app.folderParentPath));
+$("#cancel-folder").addEventListener("click", () => $("#folder-dialog").close());
+$("#confirm-folder").addEventListener("click", confirmProjectFolder);
 $("#add-provider").addEventListener("click", () => openProviderDialog());
-$("#new-chat").addEventListener("click", () => $("#chat-dialog").showModal());
+$("#new-chat").addEventListener("click", startNewConversation);
+$("#empty-add-project").addEventListener("click", () => $("#project-dialog").showModal());
+$("#toggle-context").addEventListener("click", toggleContextPanel);
+$("#close-context").addEventListener("click", () => {
+  if (!$("#workspace-grid").classList.contains("context-collapsed")) toggleContextPanel();
+});
+$("#sidebar-toggle").addEventListener("click", () => document.body.classList.add("sidebar-open"));
+$("#sidebar-backdrop").addEventListener("click", () => document.body.classList.remove("sidebar-open"));
+$("#empty-send-message").addEventListener("click", startChatFromPrompt);
+$("#empty-message-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    startChatFromPrompt();
+  }
+});
+for (const card of document.querySelectorAll(".prompt-card")) {
+  card.addEventListener("click", () => {
+    $("#empty-message-input").value = card.dataset.prompt || "";
+    $("#empty-message-input").focus();
+  });
+}
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    startNewConversation();
+  }
+});
 for (const button of document.querySelectorAll(".dialog-cancel")) {
   button.addEventListener("click", () => button.closest("dialog").close());
 }
@@ -735,6 +982,40 @@ $("#continue-handoff").addEventListener("click", continueHandoff);
 $("#approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("once"));
 $("#auto-approve-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("project"));
 $("#deny-auxiliary").addEventListener("click", () => resolveAuxiliaryApproval("deny"));
+$("#close-subscription-dialog").addEventListener("click", () => $("#subscription-dialog").close());
+$("#copy-gpt-instruction").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText("Dùng AI Workspace, lấy task đang chờ GPT lập kế hoạch, lập kế hoạch đầy đủ rồi lưu lại bằng tool tương ứng.");
+    toast("Đã sao chép câu lệnh cho ChatGPT Plus.");
+  } catch {
+    toast("Trình duyệt không cho sao chép. Hãy chọn và sao chép câu lệnh hiển thị phía trên.");
+  }
+});
+$("#copy-gemini-instruction").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText("Dùng AI Workspace, lấy task đang chờ Gemini review, kiểm tra kỹ kế hoạch rồi lưu review và kế hoạch cuối bằng tool tương ứng.");
+    toast("Đã sao chép câu lệnh cho Gemini Pro.");
+  } catch {
+    toast("Trình duyệt không cho sao chép. Hãy chọn và sao chép câu lệnh hiển thị phía trên.");
+  }
+});
+$("#planning-mode").addEventListener("change", async () => {
+  updatePlanningModeUi();
+  try {
+    await savePlanningWorkflow();
+  } catch (error) {
+    toast(`Không lưu được chế độ chuẩn bị: ${error.message}`);
+  }
+});
+for (const selectorId of ["#planner-provider", "#reviewer-provider"]) {
+  $(selectorId).addEventListener("change", async () => {
+    try {
+      await savePlanningWorkflow();
+    } catch (error) {
+      toast(`Không lưu được workflow: ${error.message}`);
+    }
+  });
+}
 
 $("#account-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -746,7 +1027,6 @@ $("#account-form").addEventListener("submit", async (event) => {
     const accountInput = {
       label: $("#account-label").value.trim(),
       email: $("#account-email").value.trim(),
-      plan: $("#account-plan").value,
       expiresAt: $("#account-expires-at").value,
       note: $("#account-note").value,
       ...(editing ? {} : { remaining: 100 })
@@ -900,4 +1180,6 @@ $("#cancel-job").addEventListener("click", async () => {
   }
 });
 
-Promise.all([loadState(), loadStatus()]).catch((error) => toast(error.message));
+Promise.all([loadState(), loadStatus()])
+  .then(startUsageAutoRefresh)
+  .catch((error) => toast(error.message));

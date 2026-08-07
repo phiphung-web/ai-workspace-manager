@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
+    "mcp": "node mcp-server.mjs",
     "check": "node self-check.mjs"
   },
   "engines": {

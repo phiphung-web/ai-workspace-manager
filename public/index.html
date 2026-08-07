@@ -9,104 +9,129 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">AI</div>
-        <div>
+    <aside class="sidebar" aria-label="Điều hướng chính">
+      <div class="sidebar-header">
+        <div class="brand-mark">⌁</div>
+        <div class="brand-copy">
           <strong>AI Workspace</strong>
-          <span>Điều phối Codex cục bộ</span>
+          <span>Codex local</span>
         </div>
       </div>
 
-      <div class="connection-card">
-        <span id="codex-dot" class="status-dot"></span>
-        <div>
-          <strong id="codex-status">Đang kiểm tra kết nối…</strong>
-          <span>Cục bộ · dữ liệu riêng tư</span>
-        </div>
-      </div>
+      <nav class="primary-nav" aria-label="Thao tác nhanh">
+        <button id="new-chat" class="nav-button nav-button-primary" type="button">
+          <span class="nav-icon">✎</span><span>Đoạn chat mới</span><kbd>Ctrl N</kbd>
+        </button>
+        <button id="add-project" class="nav-button" type="button">
+          <span class="nav-icon">▱</span><span>Mở thư mục dự án</span>
+        </button>
+      </nav>
 
-      <section class="side-section">
+      <section class="side-section account-section">
         <div class="section-heading">
           <span>Tài khoản Codex</span>
           <div class="section-actions">
             <button id="refresh-usage" class="icon-button" type="button" aria-label="Cập nhật hạn mức" title="Cập nhật hạn mức">↻</button>
-            <button id="add-account" class="icon-button" type="button" aria-label="Thêm tài khoản Codex" title="Thêm tài khoản Codex">+</button>
+            <button id="add-account" class="icon-button" type="button" aria-label="Thêm tài khoản Codex" title="Thêm tài khoản Codex">＋</button>
           </div>
         </div>
         <div id="account-list" class="account-list"></div>
       </section>
 
-      <section class="side-section projects-section">
-        <div class="section-heading">
-          <span>Dự án</span>
-          <button id="add-project" class="icon-button" type="button" aria-label="Thêm dự án" title="Thêm dự án">+</button>
-        </div>
-        <div id="project-list" class="project-list"></div>
-      </section>
+      <div class="sidebar-scroll">
+        <section class="side-section projects-section">
+          <div class="section-heading">
+            <span>Dự án</span>
+            <span id="project-count" class="section-count">0</span>
+          </div>
+          <div id="project-list" class="project-list"></div>
+        </section>
 
-      <section class="side-section">
-        <div class="section-heading">
-          <span>AI phụ trợ</span>
-          <button id="add-provider" class="icon-button" type="button" aria-label="Thêm AI phụ trợ" title="Thêm AI phụ trợ">+</button>
-        </div>
-        <div id="provider-list" class="provider-list"></div>
-      </section>
+        <section class="side-section chats-section">
+          <div class="section-heading">
+            <span>Đoạn chat trong dự án</span>
+            <span id="chat-count" class="section-count">0</span>
+          </div>
+          <div id="chat-list" class="chat-list"></div>
+        </section>
+      </div>
 
-      <div class="privacy-note">
-        <span class="lock-icon">●</span>
-        Thông tin đăng nhập Codex được tách riêng theo từng tài khoản.
+      <details class="side-advanced">
+        <summary><span class="nav-icon">◇</span><strong>API nâng cao</strong><span>Tùy chọn · có thể tính phí</span></summary>
+        <section class="side-section">
+          <div class="section-heading">
+            <span>API tùy chọn</span>
+            <button id="add-provider" class="icon-button" type="button" aria-label="Thêm API tùy chọn" title="Thêm API tùy chọn">＋</button>
+          </div>
+          <div id="provider-list" class="provider-list"></div>
+        </section>
+      </details>
+
+      <div class="sidebar-footer">
+        <span id="codex-dot" class="status-dot"></span>
+        <div>
+          <strong id="codex-status">Đang kiểm tra Codex…</strong>
+          <span>Dữ liệu lưu trên máy này</span>
+        </div>
       </div>
     </aside>
+    <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Đóng thanh điều hướng"></button>
 
     <main class="main">
       <header class="topbar">
-        <div class="mobile-brand">
-          <div class="brand-mark">AI</div>
-          <strong>AI Workspace</strong>
-        </div>
-        <div>
-          <p class="eyebrow">Không gian làm việc cục bộ</p>
-          <h1 id="project-title">Chọn dự án để bắt đầu</h1>
+        <button id="sidebar-toggle" class="topbar-icon" type="button" aria-label="Mở thanh điều hướng">☰</button>
+        <div class="workspace-heading">
+          <h1 id="project-title">Trò chuyện chung</h1>
+          <span id="project-path-label">Không gắn thư mục dự án</span>
         </div>
         <div class="top-actions">
           <div id="active-account-pill" class="active-account-pill">
-            <span class="status-dot"></span>
-            <span>Chưa chọn tài khoản</span>
+            <span class="status-dot"></span><span>Chưa chọn tài khoản</span>
           </div>
-          <button id="new-chat" class="button button-primary" type="button" disabled>+ Tạo cuộc trò chuyện</button>
+          <button id="toggle-context" class="topbar-button" type="button" aria-expanded="false">Bộ nhớ</button>
         </div>
       </header>
 
-      <div class="workspace-grid">
-        <aside class="chat-sidebar">
-          <div class="panel-heading">
-            <span>Luồng công việc</span>
-            <small id="chat-count">0 cuộc trò chuyện</small>
-          </div>
-          <div id="chat-list" class="chat-list"></div>
-        </aside>
-
+      <div id="workspace-grid" class="workspace-grid context-collapsed">
         <section class="conversation-panel">
           <div id="empty-state" class="empty-state">
-            <div class="empty-orb"><span></span></div>
-            <p class="eyebrow">Liên tục giữa các tài khoản</p>
-            <h2>Công việc tiếp tục. Tài khoản có thể thay đổi.</h2>
-            <p>
-              Quản lý nhiều tài khoản Codex trong một workspace. Khi một tài khoản chạm hạn mức,
-              hệ thống lưu trạng thái dự án và chuẩn bị ngữ cảnh để tài khoản tiếp theo tiếp quản.
-            </p>
-            <div class="steps">
-              <div><b>01 · Kết nối</b><span>Thêm các tài khoản Codex đang có</span></div>
-              <div><b>02 · Làm việc</b><span>Mở thư mục và bắt đầu một luồng</span></div>
-              <div><b>03 · Tiếp quản</b><span>Chuyển tài khoản, giữ nguyên tiến độ</span></div>
+            <div class="empty-content">
+              <div class="codex-glyph">⌁</div>
+              <h2>Chúng ta nên xây dựng gì?</h2>
+              <div class="prompt-grid">
+                <button class="prompt-card" type="button" data-prompt="Khám phá dự án này và giải thích cấu trúc, luồng hoạt động chính">
+                  <span class="prompt-icon blue">⌁</span><strong>Khám phá và hiểu code</strong>
+                </button>
+                <button class="prompt-card" type="button" data-prompt="Xây dựng tính năng mới theo yêu cầu của tôi và kiểm tra đầy đủ">
+                  <span class="prompt-icon purple">⌕</span><strong>Xây dựng tính năng mới</strong>
+                </button>
+                <button class="prompt-card" type="button" data-prompt="Rà soát code hiện tại, tìm vấn đề và đề xuất thay đổi an toàn">
+                  <span class="prompt-icon green">↻</span><strong>Rà soát và đề xuất</strong>
+                </button>
+                <button class="prompt-card" type="button" data-prompt="Điều tra lỗi đang gặp, xác định nguyên nhân và sửa dứt điểm">
+                  <span class="prompt-icon orange">♙</span><strong>Sửa sự cố và lỗi</strong>
+                </button>
+              </div>
+            </div>
+
+            <div class="empty-composer-wrap">
+              <div class="project-chip-row">
+                <button id="empty-add-project" class="project-chip" type="button"><span>▱</span><span id="empty-project-label">Chọn dự án</span></button>
+              </div>
+              <div class="empty-composer">
+                <textarea id="empty-message-input" rows="3" placeholder="Làm bất cứ điều gì"></textarea>
+                <div class="empty-composer-actions">
+                  <span>Codex sẽ tự tạo đoạn chat và lưu tiến độ</span>
+                  <button id="empty-send-message" class="send-button" type="button" aria-label="Bắt đầu và gửi yêu cầu">↑</button>
+                </div>
+              </div>
             </div>
           </div>
 
           <div id="chat-view" class="chat-view hidden">
             <div class="chat-header">
               <div>
-                <p class="eyebrow">Phiên làm việc</p>
+                <p class="eyebrow">Đoạn chat</p>
                 <h2 id="chat-title">—</h2>
               </div>
               <div class="chat-meta">
@@ -128,82 +153,68 @@
             <div id="messages" class="messages" aria-live="polite"></div>
             <div id="job-strip" class="job-strip hidden">
               <span class="spinner"></span>
-              <div>
-                <strong id="job-label">Codex đang xử lý…</strong>
-                <span id="job-event">Đang khởi tạo phiên</span>
-              </div>
+              <div><strong id="job-label">Codex đang xử lý…</strong><span id="job-event">Đang khởi tạo phiên</span></div>
               <button id="cancel-job" type="button">Dừng</button>
             </div>
             <footer class="composer">
-              <div class="composer-options">
-                <label>
-                  <span>Mô hình</span>
-                  <input id="model-input" placeholder="Mặc định">
-                </label>
-                <label>
-                  <span>Phạm vi</span>
-                  <select id="sandbox-input">
-                    <option value="workspace-write">Đọc và chỉnh sửa dự án</option>
-                    <option value="read-only">Chỉ đọc dự án</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Trợ lý phụ</span>
-                  <select id="auxiliary-provider">
-                    <option value="">Không dùng</option>
-                  </select>
-                </label>
-              </div>
               <div class="composer-box">
-                <textarea id="message-input" rows="3" placeholder="Mô tả công việc bạn muốn Codex thực hiện…"></textarea>
-                <button id="send-message" type="button" aria-label="Gửi yêu cầu" title="Gửi yêu cầu">↑</button>
+                <textarea id="message-input" rows="3" placeholder="Yêu cầu Codex thực hiện công việc…"></textarea>
+                <button id="send-message" class="send-button" type="button" aria-label="Gửi yêu cầu" title="Gửi yêu cầu">↑</button>
               </div>
-              <div class="composer-note">
-                <span>Enter để gửi · Shift + Enter để xuống dòng</span>
-                <span id="bridge-note">Lịch sử được lưu cục bộ</span>
+              <div class="composer-toolbar">
+                <details class="composer-settings">
+                  <summary>＋ &nbsp;Tùy chọn</summary>
+                  <div class="composer-options">
+                    <label><span>Mô hình</span><input id="model-input" placeholder="Codex tự chọn"></label>
+                    <label><span>Quyền truy cập</span><select id="sandbox-input"><option value="workspace-write">Được chỉnh sửa trong thư mục</option><option value="read-only">Chỉ xem, không chỉnh sửa</option></select></label>
+                    <div class="planning-workflow-field">
+                      <span>Chuẩn bị trước khi Codex làm</span>
+                      <select id="planning-mode">
+                        <option value="subscription">ChatGPT Plus lập kế hoạch → Gemini Pro review</option>
+                        <option value="none">Codex làm trực tiếp</option>
+                        <option value="api">API tự động (nâng cao, có thể tính phí)</option>
+                      </select>
+                      <div id="api-planning-options" class="planning-selects hidden">
+                        <label><span>GPT lập kế hoạch</span><select id="planner-provider"><option value="">Không dùng</option></select></label>
+                        <label><span>Gemini review</span><select id="reviewer-provider"><option value="">Không dùng</option></select></label>
+                      </div>
+                      <small id="planning-mode-help">ChatGPT Plus lập kế hoạch qua MCP; Gemini CLI sẽ review nền bằng đăng nhập Google khi đã cài. Không cần API key.</small>
+                    </div>
+                  </div>
+                </details>
+                <div class="composer-note"><span id="bridge-note">Lịch sử được lưu cục bộ</span><span>Enter để gửi</span></div>
               </div>
             </footer>
           </div>
         </section>
 
         <aside class="context-panel">
-          <div class="panel-heading">
-            <span>Bộ nhớ dự án</span>
-            <span id="save-indicator">Đã lưu</span>
+          <div class="context-panel-header">
+            <div><p class="eyebrow">Bộ nhớ dự án</p><h2>Tiến độ và bàn giao</h2></div>
+            <button id="close-context" class="icon-button" type="button" aria-label="Đóng bộ nhớ">×</button>
           </div>
-          <div id="context-empty" class="context-empty">
-            Chọn một dự án để xem và cập nhật ngữ cảnh dùng chung giữa các tài khoản Codex.
+          <div class="auto-memory-card">
+            <strong><span class="status-dot online"></span> Tự động ghi nhớ</strong>
+            <p>Mục tiêu, kết quả, trạng thái code và tài khoản thực hiện được lưu sau mỗi lượt.</p>
+            <small id="save-indicator">Đang hoạt động</small>
           </div>
+          <div id="context-empty" class="context-empty">Chọn một dự án để xem tiến độ.</div>
           <div id="context-form" class="context-form hidden">
-            <label>
-              <span>Tóm tắt tiến độ</span>
-              <textarea id="summary-input" rows="10" placeholder="Mục tiêu, phần đã hoàn thành, tệp đã thay đổi, kết quả kiểm tra…"></textarea>
-            </label>
-            <label>
-              <span>Hành động tiếp theo</span>
-              <textarea id="next-step-input" rows="6" placeholder="Bước cụ thể mà tài khoản tiếp theo cần thực hiện…"></textarea>
-            </label>
-            <details class="context-settings">
-              <summary>Cấu hình ngữ cảnh và cuộc trò chuyện dài</summary>
-              <label>
-                <span>Chiến lược đóng gói</span>
-                <select id="context-strategy">
-                  <option value="goal-recent">Mục tiêu ban đầu + lượt trao đổi gần nhất</option>
-                  <option value="recent">Chỉ các lượt trao đổi gần nhất</option>
-                </select>
-              </label>
-              <div class="context-setting-grid">
-                <label><span>Số tin nhắn tối đa</span><input id="context-max-messages" type="number" min="10" max="200" value="80"></label>
-                <label><span>Giới hạn ký tự</span><input id="context-budget" type="number" min="8000" max="100000" step="1000" value="48000"></label>
+            <details class="manual-memory">
+              <summary>Ghi chú ưu tiên <span>Không bắt buộc</span></summary>
+              <div class="manual-memory-fields">
+                <label><span>Mục tiêu hoặc lưu ý quan trọng</span><textarea id="summary-input" rows="7" placeholder="Chỉ nhập khi có lưu ý muốn Codex luôn ưu tiên…"></textarea></label>
+                <label><span>Việc muốn làm tiếp</span><textarea id="next-step-input" rows="4" placeholder="Có thể để trống; hệ thống vẫn tự lưu tiến độ…"></textarea></label>
+                <button id="save-context" class="button button-secondary" type="button">Lưu ghi chú</button>
               </div>
-              <label><span>Cảnh báo cuộc trò chuyện dài từ</span><input id="long-chat-threshold" type="number" min="40" max="500" value="120"></label>
-              <p>Lịch sử đầy đủ vẫn được lưu cục bộ. Các giới hạn chỉ áp dụng khi tạo gói bàn giao cho tài khoản mới.</p>
             </details>
-            <button id="save-context" class="button button-secondary" type="button">Lưu bộ nhớ dự án</button>
-            <div class="context-tip">
-              <strong>Tối ưu hạn mức</strong>
-              <p>Hệ thống ưu tiên mục tiêu, tiến độ, checkpoint và trạng thái Git; chỉ gửi phần lịch sử cần thiết khi bàn giao.</p>
+            <div class="system-context-settings" aria-hidden="true">
+              <select id="context-strategy"><option value="goal-recent">Mục tiêu + lịch sử gần nhất</option><option value="recent">Chỉ lịch sử gần nhất</option></select>
+              <input id="context-max-messages" type="number" min="10" max="200" value="80">
+              <input id="context-budget" type="number" min="8000" max="100000" step="1000" value="48000">
+              <input id="long-chat-threshold" type="number" min="40" max="500" value="120">
             </div>
+            <div class="context-tip"><strong>Khi đổi tài khoản</strong><p>Tài khoản mới nhận bản tóm tắt mục tiêu, phần đã làm và trạng thái Git để tiếp tục đúng chỗ.</p></div>
           </div>
         </aside>
       </div>
@@ -214,23 +225,9 @@
     <form id="account-form" method="dialog">
       <p id="account-dialog-eyebrow" class="eyebrow">Tài khoản Codex</p>
       <h2 id="account-dialog-title">Thêm tài khoản</h2>
-      <p class="dialog-copy">Đặt tên để dễ phân biệt. Sau khi lưu, hệ thống sẽ mở luồng đăng nhập Codex chính thức và không lưu mật khẩu của bạn.</p>
+      <p class="dialog-copy">Đặt tên để dễ phân biệt. Sau khi đăng nhập, hệ thống tự nhận gói, hạn mức và thời gian đặt lại từ Codex.</p>
       <label>Tên tài khoản<input id="account-label" required maxlength="80" placeholder="Ví dụ: Codex Plus 01"></label>
       <label>Email (không bắt buộc)<input id="account-email" type="email" maxlength="180" placeholder="ten@email.com"></label>
-      <div class="form-row">
-        <label>Gói
-          <select id="account-plan">
-            <option>Plus</option>
-            <option>Pro</option>
-            <option>Business</option>
-            <option>Free</option>
-          </select>
-        </label>
-        <div class="auto-limit-note">
-          <strong>Hạn mức</strong>
-          <span>Tự đồng bộ sau khi đăng nhập</span>
-        </div>
-      </div>
       <details class="optional-fields">
         <summary>Thông tin quản lý <span>Không bắt buộc</span></summary>
         <label>Thời điểm hết hạn<input id="account-expires-at" type="datetime-local"></label>
@@ -247,10 +244,18 @@
   <dialog id="project-dialog">
     <form id="project-form" method="dialog">
       <p class="eyebrow">Dự án cục bộ mới</p>
-      <h2>Kết nối thư mục làm việc</h2>
-      <label>Tên dự án<input id="project-name" maxlength="100" placeholder="Website LAKA"></label>
-      <label>Đường dẫn thư mục<input id="project-path" required maxlength="2000" placeholder="C:\Users\Tên\Projects\du-an"></label>
-      <p class="dialog-copy">Codex chỉ hoạt động trong thư mục đã khai báo và tuân theo phạm vi truy cập của từng cuộc trò chuyện.</p>
+      <h2>Chọn thư mục dự án</h2>
+      <label>Tên dự án<input id="project-name" maxlength="100" placeholder="Tự lấy theo tên thư mục nếu để trống"></label>
+      <label>Thư mục trên máy
+        <div class="path-picker">
+          <input id="project-path" required maxlength="2000" placeholder="Chưa chọn thư mục">
+          <button id="browse-project-path" class="button button-secondary" type="button">Chọn thư mục</button>
+        </div>
+      </label>
+      <p class="dialog-copy folder-picker-help">
+        Nút <strong>Chọn thư mục</strong> mở cửa sổ Windows đầy đủ. Nếu cửa sổ hệ thống không hiện,
+        <button id="browse-project-path-fallback" class="text-button" type="button">duyệt ngay trong ứng dụng</button>.
+      </p>
       <div class="dialog-actions">
         <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
         <button class="button button-primary" type="submit">Thêm dự án</button>
@@ -258,25 +263,43 @@
     </form>
   </dialog>
 
+  <dialog id="folder-dialog" class="folder-dialog">
+    <div class="folder-dialog-content">
+      <p class="eyebrow">Thư mục trên máy này</p>
+      <h2>Chọn thư mục dự án</h2>
+      <div class="folder-location">
+        <button id="folder-up" class="icon-button" type="button" aria-label="Lên thư mục cha" title="Lên thư mục cha">↑</button>
+        <span id="folder-current-path">Đang tải…</span>
+      </div>
+      <div id="folder-list" class="folder-list" aria-live="polite"></div>
+      <p id="folder-error" class="folder-error hidden"></p>
+      <div class="dialog-actions">
+        <button id="cancel-folder" class="button button-ghost" type="button">Hủy</button>
+        <button id="confirm-folder" class="button button-primary" type="button">Chọn thư mục này</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="provider-dialog">
     <form id="provider-form" method="dialog">
-      <p id="provider-dialog-eyebrow" class="eyebrow">Trợ lý chuyên biệt</p>
-      <h2 id="provider-dialog-title">Kết nối AI phụ trợ</h2>
+      <p id="provider-dialog-eyebrow" class="eyebrow">Nâng cao · có thể tính phí</p>
+      <h2 id="provider-dialog-title">Kết nối bằng API key</h2>
       <p class="dialog-copy">API key được bảo vệ bằng Windows DPAPI và không được gửi lại trình duyệt sau khi lưu.</p>
       <label>Nhà cung cấp
         <select id="provider-type">
-          <option value="anthropic">Claude / Anthropic</option>
           <option value="openai">OpenAI</option>
+          <option value="google">Google Gemini</option>
+          <option value="anthropic">Claude / Anthropic</option>
         </select>
       </label>
-      <label>Tên cấu hình<input id="provider-label" required maxlength="80" placeholder="Claude · Review code"></label>
+      <label>Tên cấu hình<input id="provider-label" required maxlength="80" placeholder="Ví dụ: GPT Planner hoặc Gemini Reviewer"></label>
       <label>API key<input id="provider-key" type="password" required autocomplete="off" maxlength="4000"></label>
       <label>Mô hình<input id="provider-model" required maxlength="120" placeholder="Nhập model ID khả dụng với API key"></label>
       <div class="form-row">
         <label>Ngân sách token<input id="provider-budget" type="number" min="0" step="1000" placeholder="10000000"></label>
         <label>Đầu ra tối đa mỗi lượt<input id="provider-max-output" type="number" min="256" max="8192" value="2048"></label>
       </div>
-      <p class="dialog-copy">Ngân sách do bạn khai báo và được trừ theo mức sử dụng qua workspace. Hoạt động của key ở nơi khác không được hệ thống tự động ghi nhận.</p>
+      <p class="dialog-copy">Ngân sách do bạn khai báo và được trừ theo mức sử dụng qua workspace. ChatGPT Plus và Gemini Pro không bao gồm API; chỉ nhập API key khi bạn chấp nhận quota/chi phí API riêng.</p>
       <div class="dialog-actions">
         <button class="button button-ghost dialog-cancel" type="button">Hủy</button>
         <button id="save-provider" class="button button-primary" type="submit">Lưu cấu hình</button>
@@ -316,8 +339,8 @@
 
   <dialog id="approval-dialog">
     <div class="switch-dialog-content">
-      <p class="eyebrow">Yêu cầu sử dụng AI phụ trợ</p>
-      <h2 id="approval-title">Codex đề xuất gọi một trợ lý khác</h2>
+      <p class="eyebrow">Xác nhận workflow lập kế hoạch</p>
+      <h2 id="approval-title">GPT lập kế hoạch, Gemini review</h2>
       <p id="approval-reason"></p>
       <div class="approval-grid">
         <div><span>Nhà cung cấp · mô hình</span><strong id="approval-provider">—</strong></div>
@@ -331,9 +354,33 @@
         <small id="approval-redactions"></small>
       </div>
       <div class="dialog-actions">
-        <button id="deny-auxiliary" class="button button-ghost" type="button">Không cho phép</button>
+        <button id="deny-auxiliary" class="button button-ghost" type="button">Không dùng, để Codex làm</button>
         <button id="approve-auxiliary" class="button button-primary" type="button">Cho phép lần này</button>
         <button id="auto-approve-auxiliary" class="button button-secondary" type="button">Luôn cho phép trong dự án</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="subscription-dialog">
+    <div class="switch-dialog-content subscription-dialog-content">
+      <p class="eyebrow">Không dùng API trả phí</p>
+      <h2>Hoàn tất 2 bước bằng tài khoản thuê bao</h2>
+      <p>Task và ngữ cảnh đã được lưu cục bộ. Không cần copy code hay giải thích lại dự án.</p>
+      <ol class="subscription-steps">
+        <li>
+          <strong>Trong ChatGPT Plus</strong>
+          <span>Dùng AI Workspace, lấy task đang chờ GPT lập kế hoạch, lập kế hoạch rồi lưu lại.</span>
+          <button id="copy-gpt-instruction" class="button button-secondary" type="button">Sao chép câu lệnh GPT</button>
+        </li>
+        <li>
+          <strong>Gemini review</strong>
+          <span>Gemini CLI sẽ tự review nền nếu đã cài và đăng nhập Google. Nếu dashboard báo fallback, dùng Gemini Pro với AI Workspace MCP để review thủ công.</span>
+          <button id="copy-gemini-instruction" class="button button-secondary" type="button">Sao chép câu lệnh Gemini dự phòng</button>
+        </li>
+      </ol>
+      <p class="dialog-copy">Khi review hoàn tất, dashboard sẽ tự chuyển kế hoạch cuối sang Codex đang chọn. Sau đó GPT/Gemini có thể dùng <code>workspace_get_task_result</code> để đọc kết quả.</p>
+      <div class="dialog-actions">
+        <button id="close-subscription-dialog" class="button button-primary" type="button">Đã hiểu</button>
       </div>
     </div>
   </dialog>
